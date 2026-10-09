@@ -10,10 +10,34 @@ Xử lý logic đối soát BOM (Production BOM List) và Tồn kho (Stock Balan
 """
 
 import io
+import re
 import pandas as pd
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+
+def clean_order_title(desc, order_no=""):
+    """
+    Loại bỏ các từ chỉ vế Trái / Phải (LHF, RHF, LEFT, RIGHT, Side Assy, Side...)
+    để hiển thị tên sản phẩm đại diện nguyên đơn gọn gàng, không bị dính chữ Trái/Phải.
+    """
+    if not desc or str(desc).strip().lower() in ('', 'nan', 'none'):
+        return f"Sản phẩm {order_no}" if order_no else "Sản phẩm"
+    
+    cleaned = str(desc).strip()
+    # Xóa các mã tiền tố kiểu "8167110301 - " hoặc "8184610004 -"
+    cleaned = re.sub(r'^\d{8,12}\s*[-_:]\s*', '', cleaned)
+    # Xóa các từ LHF, RHF, LH, RH, LEFT, RIGHT, Side Assy, Side
+    cleaned = re.sub(r'\b(LHF|RHF|LH|RH|LEFT|RIGHT|Side\s*Assy|Side)\b', '', cleaned, flags=re.IGNORECASE)
+    # Dọn dẹp khoảng trắng thừa và dấu gạch nối lẻ loi
+    cleaned = re.sub(r'[-_]\s*$', '', cleaned)
+    cleaned = re.sub(r'^\s*[-_]', '', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    if not cleaned or cleaned.isdigit():
+        return f"Sản phẩm {order_no}"
+    return cleaned
 
 
 def find_header_row_from_df(df_raw, keywords, max_rows=20):
@@ -159,9 +183,10 @@ def get_available_orders_info(df_bom):
         sides = sorted(group['Side'].unique())
         has_both_sides = ('Trái' in sides) and ('Phải' in sides)
         
-        # Lấy mô tả sản phẩm đại diện
-        desc_list = [d for d in group['Product_Desc'].unique() if d and d != 'nan']
-        main_desc = desc_list[0] if desc_list else f"Sản phẩm đơn hàng {order_no}"
+        # Lấy mô tả sản phẩm đại diện (làm sạch không chứa Trái / Phải / LHF / RHF)
+        desc_list = [d for d in group['Product_Desc'].unique() if d and str(d).strip().lower() not in ('', 'nan')]
+        raw_desc = desc_list[0] if desc_list else f"Sản phẩm đơn hàng {order_no}"
+        clean_desc = clean_order_title(raw_desc, order_no)
         
         variants = sorted(group['Variant'].unique())
         unique_components = len(group['Component_Code'].unique())
@@ -169,7 +194,8 @@ def get_available_orders_info(df_bom):
         
         orders_info[order_no] = {
             'order_no': order_no,
-            'description': main_desc,
+            'description': clean_desc,
+            'raw_description': raw_desc,
             'sides': sides,
             'has_both_sides': has_both_sides,
             'variants': variants,
@@ -192,26 +218,6 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
     """
     # Khởi tạo quỹ tồn kho độc lập để trừ dần
     stock_qty_pool = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
-    
-    # Gom thông tin BIN và BATCH theo từng Stock_Code
-    stock_meta = {}
-    for code, group in df_stock.groupby('Stock_Code'):
-        bins = sorted(set(b for b in group['BIN'].unique() if b and b != 'nan'))
-        batches = sorted(set(b for b in group['BATCH'].unique() if b and b != 'nan'))
-        
-        bin_breakdown = []
-        for b, bg in group.groupby('BIN'):
-            if b and b != 'nan':
-                q = bg['Qty'].sum()
-                bin_breakdown.append(f"{b} ({int(q):,})")
-                
-        stock_meta[code] = {
-            'total_initial': group['Qty'].sum(),
-            'bins': ", ".join(bins),
-            'batches': ", ".join(batches),
-            'bin_detail': ", ".join(bin_breakdown)
-        }
-        
     results = []
     
     for idx, item in enumerate(orders_queue, 1):
@@ -222,12 +228,9 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         created_at = item.get('created_at', '')
         
         # Lọc dữ liệu BOM cho đơn hàng này
-        mask = df_bom['Order_No'] == order_no
-        if variant:
-            mask = mask & (df_bom['Variant'] == variant)
-        bom_order = df_bom[mask].copy()
+        order_boms = df_bom[df_bom['Order_No'] == order_no]
         
-        if len(bom_order) == 0:
+        if len(order_boms) == 0:
             results.append({
                 'id': item_id,
                 'stt': idx,
@@ -243,9 +246,19 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             })
             continue
             
-        # Lấy tên sản phẩm đại diện
-        desc_list = [d for d in bom_order['Product_Desc'].unique() if d and d != 'nan']
-        product_title = desc_list[0] if desc_list else f"Đơn hàng {order_no}"
+        # Nếu đơn hàng có nhiều phiên bản (variant) mà không chỉ định rõ:
+        # Chọn phiên bản đầu tiên (ví dụ '0004') để không bị cộng gộp nhân đôi định mức
+        avail_variants = sorted(order_boms['Variant'].unique())
+        chosen_variant = variant if (variant and variant in avail_variants) else avail_variants[0]
+        
+        bom_order = order_boms[order_boms['Variant'] == chosen_variant].copy()
+        if len(bom_order) == 0:
+            bom_order = order_boms.copy()
+            
+        # Lấy tên sản phẩm đại diện (làm sạch không chứa Trái / Phải)
+        desc_list = [d for d in bom_order['Product_Desc'].unique() if d and str(d).strip().lower() not in ('', 'nan')]
+        raw_desc = desc_list[0] if desc_list else f"Sản phẩm đơn hàng {order_no}"
+        product_title = clean_order_title(raw_desc, order_no)
         
         # Gom nhóm theo từng linh kiện (Component Code)
         comp_groups = bom_order.groupby('Component_Code')
@@ -254,30 +267,38 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         for comp_code, cgroup in comp_groups:
             comp_desc = cgroup['Component_Desc'].iloc[0]
             
-            # Định mức bên Trái
+            # Định mức bên Trái (1 vế)
             left_rows = cgroup[cgroup['Side'] == 'Trái']
-            left_bom_qty = left_rows['Qty'].sum() if len(left_rows) > 0 else 0.0
+            left_bom_qty = float(left_rows['Qty'].sum()) if len(left_rows) > 0 else 0.0
             
-            # Định mức bên Phải
+            # Định mức bên Phải (1 vế)
             right_rows = cgroup[cgroup['Side'] == 'Phải']
-            right_bom_qty = right_rows['Qty'].sum() if len(right_rows) > 0 else 0.0
+            right_bom_qty = float(right_rows['Qty'].sum()) if len(right_rows) > 0 else 0.0
             
             # Nếu có dòng khác ngoài Trái/Phải
             other_rows = cgroup[~cgroup['Side'].isin(['Trái', 'Phải'])]
-            other_bom_qty = other_rows['Qty'].sum() if len(other_rows) > 0 else 0.0
+            other_bom_qty = float(other_rows['Qty'].sum()) if len(other_rows) > 0 else 0.0
             
+            # Tổng định mức cho 1 bộ nguyên đơn (Trái + Phải)
             total_bom_unit = left_bom_qty + right_bom_qty + other_bom_qty
-            total_required = total_bom_unit * order_qty
+            
+            # Nhân định mức Trái và Phải với số lượng đơn hàng cần chạy
+            req_left = left_bom_qty * order_qty
+            req_right = right_bom_qty * order_qty
+            req_other = other_bom_qty * order_qty
+            
+            # Tổng số lượng BOM cần chạy cho nguyên đơn (Trái + Phải)
+            total_required = req_left + req_right + req_other
             
             # Tồn kho khả dụng trước khi trừ
-            curr_stock = stock_qty_pool.get(comp_code, 0.0)
+            curr_stock = float(stock_qty_pool.get(comp_code, 0.0))
             
-            # Đối soát số lượng
+            # Đối soát số lượng và trừ tồn kho
             if curr_stock >= total_required:
                 allocated = total_required
                 shortage = 0.0
                 status = "OK"
-                note = "OK"
+                note = "Đủ hàng"
                 stock_qty_pool[comp_code] = curr_stock - total_required
             else:
                 allocated = max(0.0, curr_stock)
@@ -286,24 +307,20 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 note = f"Thiếu {int(shortage) if shortage.is_integer() else shortage:g}"
                 stock_qty_pool[comp_code] = 0.0
                 
-            info = stock_meta.get(comp_code, {'bins': '', 'batches': '', 'bin_detail': ''})
-            
             summary_rows.append({
                 'Mã linh kiện': comp_code,
                 'Tên linh kiện': comp_desc,
                 'Định mức Trái': left_bom_qty,
                 'Định mức Phải': right_bom_qty,
                 'Tổng định mức (1 bộ)': total_bom_unit,
-                'Số lượng đơn': order_qty,
-                'Số lượng cần': total_required,
-                'Tồn kho trước trừ': curr_stock,
+                'SL Cần Trái': req_left,
+                'SL Cần Phải': req_right,
+                'SL BOM cần chạy': total_required,
+                'Số lượng tồn kho': curr_stock,
                 'Số lượng cấp': allocated,
                 'Số lượng thiếu': shortage,
                 'Trạng thái': status,
-                'Ghi chú': note,
-                'Vị trí BIN': info['bins'],
-                'Lô BATCH': info['batches'],
-                'Chi tiết BIN tồn': info['bin_detail']
+                'Ghi chú': note
             })
             
         df_summary = pd.DataFrame(summary_rows)
@@ -323,12 +340,10 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             comp_info = summary_map.get(ccode, {
                 'Trạng thái': 'THIẾU',
                 'Ghi chú': f"Thiếu {brow['Qty'] * order_qty:g}",
-                'Vị trí BIN': '',
-                'Lô BATCH': '',
-                'Tồn kho trước trừ': 0.0
+                'Số lượng tồn kho': 0.0
             })
             
-            row_required = brow['Qty'] * order_qty
+            row_required = float(brow['Qty'] * order_qty)
             detail_rows.append({
                 'Vế': brow['Side'],
                 'Mã sản phẩm (Product Code)': brow['Product_Code'],
@@ -337,11 +352,9 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'Định mức BOM': brow['Qty'],
                 'Số lượng đơn': order_qty,
                 'Số lượng cần': row_required,
-                'Tồn kho khả dụng': comp_info.get('Tồn kho trước trừ', 0.0),
+                'Tồn kho khả dụng': comp_info.get('Số lượng tồn kho', 0.0),
                 'Trạng thái': comp_info.get('Trạng thái', 'THIẾU'),
-                'Ghi chú': comp_info.get('Ghi chú', 'THIẾU'),
-                'Vị trí BIN': comp_info.get('Vị trí BIN', ''),
-                'Lô BATCH': comp_info.get('Lô BATCH', '')
+                'Ghi chú': comp_info.get('Ghi chú', 'THIẾU')
             })
             
         df_detail = pd.DataFrame(detail_rows)
@@ -361,6 +374,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             'order_no': order_no,
             'order_qty': order_qty,
             'product_title': product_title,
+            'variant': chosen_variant,
             'created_at': created_at,
             'total_items': total_items,
             'ok_count': ok_count,

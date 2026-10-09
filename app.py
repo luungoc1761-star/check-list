@@ -1,39 +1,137 @@
 import datetime
+import io
 import streamlit as st
 import pandas as pd
 import core_engine
 
-# Cấu hình trang Streamlit
+# ==================== CẤU HÌNH TRANG STREAMLIT ====================
 st.set_page_config(
-    page_title="Đối soát BOM Sản Xuất & Tồn Kho (FIFO)",
+    page_title="Đối Soát BOM Sản Xuất & Tồn Kho (FIFO)",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS cho giao diện hiện đại, chuyên nghiệp
+# ==================== CUSTOM CSS GIAO DIỆN HIỆN ĐẠI & SỐNG ĐỘNG ====================
 st.markdown("""
 <style>
-    /* Tổng thể font & spacing */
-    .main-title {
-        font-size: 26px;
-        font-weight: 700;
-        color: #1E3A8A;
-        margin-bottom: 4px;
-    }
-    .sub-title {
-        font-size: 14px;
-        color: #4B5563;
-        margin-bottom: 20px;
+    /* Google Fonts & Base styling */
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* Hộp nổi nhập liệu */
+    /* Ẩn dấu tăng giảm +/- spin buttons trên các ô số lượng */
+    input[type=number]::-webkit-inner-spin-button, 
+    input[type=number]::-webkit-outer-spin-button { 
+        -webkit-appearance: none !important; 
+        margin: 0 !important; 
+    }
+    input[type=number] {
+        -moz-appearance: textfield !important;
+    }
+    button[data-testid="stNumberInputStepDown"],
+    button[data-testid="stNumberInputStepUp"] {
+        display: none !important;
+    }
+
+    /* Hero Banner hiện đại, cao cấp */
+    .hero-banner {
+        background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #2563EB 100%);
+        border-radius: 16px;
+        padding: 26px 32px;
+        color: #FFFFFF;
+        box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.25), 0 8px 10px -6px rgba(30, 58, 138, 0.15);
+        margin-bottom: 24px;
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-banner::after {
+        content: '';
+        position: absolute;
+        top: -40px;
+        right: -40px;
+        width: 180px;
+        height: 180px;
+        background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 70%);
+        border-radius: 50%;
+        pointer-events: none;
+    }
+    .hero-title {
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .hero-desc {
+        font-size: 14px;
+        color: #E2E8F0;
+        font-weight: 400;
+        line-height: 1.5;
+    }
+    .hero-tag {
+        display: inline-block;
+        background: rgba(255, 255, 255, 0.18);
+        backdrop-filter: blur(8px);
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 12px;
+        font-weight: 600;
+        margin-top: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    /* KPI Metric Cards cao cấp */
+    .kpi-container {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+        margin-bottom: 24px;
+    }
+    .kpi-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 16px 18px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        position: relative;
+        overflow: hidden;
+    }
+    .kpi-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.07);
+    }
+    .kpi-card-border-blue { border-top: 4px solid #2563EB; }
+    .kpi-card-border-green { border-top: 4px solid #10B981; }
+    .kpi-card-border-purple { border-top: 4px solid #8B5CF6; }
+    .kpi-card-border-amber { border-top: 4px solid #F59E0B; }
+
+    .kpi-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: #64748B;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+    }
+    .kpi-value {
+        font-size: 22px;
+        font-weight: 800;
+        color: #0F172A;
+    }
+
+    /* Bảng nổi nhập đơn hàng */
     .floating-box {
         background: #FFFFFF;
-        border: 2px solid #3B82F6;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.15), 0 8px 10px -6px rgba(59, 130, 246, 0.1);
+        border: 1.5px solid #2563EB;
+        border-radius: 14px;
+        padding: 22px;
+        box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.12), 0 8px 10px -6px rgba(37, 99, 235, 0.08);
         margin-bottom: 24px;
     }
     .box-header {
@@ -43,42 +141,60 @@ st.markdown("""
         display: flex;
         align-items: center;
         gap: 8px;
+        margin-bottom: 12px;
+    }
+
+    /* Chip gợi ý đơn hàng */
+    .chip-container {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
         margin-bottom: 14px;
     }
-    
-    /* Khung danh sách chờ */
-    .queue-container {
-        background: #F9FAFB;
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        padding: 18px;
-        margin-bottom: 24px;
+    .chip-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #475569;
     }
-    
-    /* Bảng HTML tô màu trực quan */
+
+    /* Bảng HTML đối soát chuyên nghiệp */
     .styled-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         font-size: 13px;
-        font-family: inherit;
-        border-radius: 8px;
+        border-radius: 10px;
         overflow: hidden;
-        margin-top: 10px;
-        margin-bottom: 14px;
+        margin-top: 12px;
+        margin-bottom: 16px;
+        border: 1px solid #CBD5E1;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.03);
     }
     .styled-table thead tr {
-        background-color: #1E3A8A;
-        color: #ffffff;
+        background: linear-gradient(135deg, #1E293B 0%, #1E3A8A 100%);
+        color: #FFFFFF;
         text-align: left;
-        font-weight: 600;
+        font-weight: 700;
+        font-size: 12.5px;
     }
-    .styled-table th, .styled-table td {
-        padding: 8px 12px;
-        border: 1px solid #E5E7EB;
+    .styled-table th {
+        padding: 10px 12px;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        vertical-align: middle;
+    }
+    .styled-table td {
+        padding: 9px 12px;
+        border-bottom: 1px solid #E2E8F0;
+        border-right: 1px solid #E2E8F0;
+        vertical-align: middle;
+    }
+    .styled-table tbody tr:last-child td {
+        border-bottom: none;
     }
     .styled-table tbody tr.row-ok {
-        background-color: #EBFEEB;
-        color: #14532D;
+        background-color: #F0FDF4;
+        color: #166534;
     }
     .styled-table tbody tr.row-missing {
         background-color: #FEF2F2;
@@ -86,46 +202,56 @@ st.markdown("""
         font-weight: 500;
     }
     .styled-table tbody tr:hover {
-        filter: brightness(0.97);
+        filter: brightness(0.96);
+        transition: filter 0.15s ease;
     }
-    
+
+    /* Badges trạng thái */
     .badge-ok {
-        background-color: #DEF7EC;
-        color: #03543F;
-        padding: 3px 8px;
+        background-color: #DCFCE7;
+        color: #15803D;
+        border: 1px solid #86EFAC;
+        padding: 3px 9px;
         border-radius: 9999px;
         font-weight: 700;
         font-size: 11px;
         display: inline-block;
+        letter-spacing: 0.3px;
     }
     .badge-missing {
-        background-color: #FDE8E8;
-        color: #9B1C1C;
-        padding: 3px 8px;
+        background-color: #FEE2E2;
+        color: #B91C1C;
+        border: 1px solid #FCA5A5;
+        padding: 3px 9px;
         border-radius: 9999px;
         font-weight: 700;
         font-size: 11px;
         display: inline-block;
+        letter-spacing: 0.3px;
     }
     .badge-order {
-        background-color: #DBEAFE;
-        color: #1E40AF;
+        background-color: #EFF6FF;
+        color: #1D4ED8;
+        border: 1px solid #BFDBFE;
         padding: 4px 10px;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
     }
-    .metric-card {
-        background: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 10px;
-        padding: 12px;
-        text-align: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    
+    /* Khung danh sách chờ */
+    .queue-box {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 24px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Khởi tạo session state
+# ==================== SESSION STATE ====================
 if 'orders_queue' not in st.session_state:
     st.session_state.orders_queue = []
 if 'custom_bom_bytes' not in st.session_state:
@@ -136,8 +262,10 @@ if 'custom_stock_bytes' not in st.session_state:
     st.session_state.custom_stock_bytes = None
 if 'custom_stock_name' not in st.session_state:
     st.session_state.custom_stock_name = None
+if 'quick_selected_order' not in st.session_state:
+    st.session_state.quick_selected_order = "8393"
 
-# Hàm load dữ liệu có cache
+# ==================== HÀM LOAD DỮ LIỆU CÓ CACHE ====================
 @st.cache_data
 def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
     bom_source = io.BytesIO(bom_bytes) if bom_bytes else 'Production BOM List 10.2.xlsx'
@@ -157,18 +285,18 @@ df_bom, df_stock, orders_info = get_loaded_data(
     st.session_state.custom_stock_name
 )
 
-# ==================== SIDEBAR ====================
+# ==================== SIDEBAR QUẢN LÝ DỮ LIỆU ====================
 with st.sidebar:
-    st.markdown("### ⚙️ Quản lý Dữ liệu")
-    st.markdown("Hệ thống tự động nhận diện cấu trúc tiêu đề file mẫu.")
+    st.markdown("### ⚙️ Dữ Liệu Nguồn")
+    st.caption("Quản lý file Tồn kho và Định mức BOM sản xuất.")
     
     # Nút upload Stock Balance
     st.markdown("#### 1. File Tồn kho (Stock Balance)")
     uploaded_stock = st.file_uploader(
-        "Nhập file Stock Balance mới",
+        "Tải lên file Stock Balance mới",
         type=["xlsx", "xls"],
         key="uploader_stock",
-        help="Cột quan trọng: Stock Code, BATCH, BIN, Qty"
+        help="Cột quan trọng: Stock Code, Qty"
     )
     if uploaded_stock is not None:
         if st.session_state.custom_stock_name != uploaded_stock.name:
@@ -178,15 +306,15 @@ with st.sidebar:
             st.success(f"Đã nạp file tồn kho: {uploaded_stock.name}")
             st.rerun()
             
-    current_stock_name = st.session_state.custom_stock_name or "Stock Balance With Batch (3).xlsx (Mẫu)"
-    st.caption(f"📁 Đang dùng: **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
+    current_stock_name = st.session_state.custom_stock_name or "Stock Balance With Batch (3).xlsx (Mặc định)"
+    st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
     
     st.divider()
     
     # Nút upload Production BOM
     st.markdown("#### 2. File Định mức (Production BOM)")
     uploaded_bom = st.file_uploader(
-        "Nhập file Production BOM mới",
+        "Tải lên file Production BOM mới",
         type=["xlsx", "xls"],
         key="uploader_bom",
         help="Cột quan trọng: Product Code, Component Code, Qty"
@@ -199,8 +327,8 @@ with st.sidebar:
             st.success(f"Đã nạp file BOM: {uploaded_bom.name}")
             st.rerun()
             
-    current_bom_name = st.session_state.custom_bom_name or "Production BOM List 10.2.xlsx (Mẫu)"
-    st.caption(f"📁 Đang dùng: **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
+    current_bom_name = st.session_state.custom_bom_name or "Production BOM List 10.2.xlsx (Mặc định)"
+    st.caption(f"📁 **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
     
     st.divider()
     
@@ -216,127 +344,178 @@ with st.sidebar:
             st.rerun()
             
     st.markdown("---")
-    st.markdown("#### 📌 Quy tắc nhận diện đơn:")
+    st.markdown("#### 💡 Cơ chế tính toán:")
     st.markdown("""
-    - **Số đầu = 1**: 4 số đầu là mã đơn hàng, 2 số tiếp (`19` = Trái, `20` = Phải).
-    - **Số đầu = 8**: Bỏ số 8, 4 số tiếp là mã đơn hàng, số thứ 6 (`1` = Trái, `2` = Phải).
-    - **FIFO**: Đơn nhập trước được ưu tiên trừ kho trước.
+    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động lấy cả 2 vế **Trái và Phải**.
+    - **Định mức nhân số lượng**: Hệ thống nhân riêng `ĐM Trái × SL` và `ĐM Phải × SL` rồi cộng lại thành tổng BOM cần chạy.
+    - **Phân bổ FIFO**: Đơn nhập trước được ưu tiên trừ tồn kho trước.
     """)
 
-# ==================== MAIN CONTENT ====================
-st.markdown('<div class="main-title">📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO KHO HÀNG</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Tính toán trừ kho tự động theo thứ tự nhập (FIFO) cho từng đơn hàng có đủ hai vế Trái và Phải</div>', unsafe_allow_html=True)
+# ==================== MAIN BANNER ====================
+st.markdown("""
+<div class="hero-banner">
+    <div class="hero-title">📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO</div>
+    <div class="hero-desc">
+        Tự động tính toán định mức nguyên đơn <b>(Trái + Phải)</b> theo số lượng cần chạy | 
+        Phân bổ trừ tồn kho tự động theo thứ tự ưu tiên <b>FIFO</b> | 
+        Bảng so sánh trực quan, tinh gọn, không rối mắt.
+    </div>
+    <div class="hero-tag">✨ Sẵn sàng vận hành sản xuất</div>
+</div>
+""", unsafe_allow_html=True)
 
-# Thống kê nhanh dữ liệu
+# Thống kê nhanh dữ liệu (KPI Cards)
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 with col_m1:
-    st.metric("Tổng đơn hàng trong BOM", f"{len(orders_info):,} đơn")
+    st.markdown(f"""
+    <div class="kpi-card kpi-card-border-blue">
+        <div class="kpi-label">Tổng đơn hàng trong BOM</div>
+        <div class="kpi-value">{len(orders_info):,} <span style="font-size:14px; font-weight:500; color:#64748B;">đơn</span></div>
+    </div>
+    """, unsafe_allow_html=True)
 with col_m2:
-    st.metric("Mã linh kiện trong kho", f"{len(df_stock['Stock_Code'].unique()):,} mã")
+    st.markdown(f"""
+    <div class="kpi-card kpi-card-border-green">
+        <div class="kpi-label">Mã linh kiện trong kho</div>
+        <div class="kpi-value">{len(df_stock['Stock_Code'].unique()):,} <span style="font-size:14px; font-weight:500; color:#64748B;">mã</span></div>
+    </div>
+    """, unsafe_allow_html=True)
 with col_m3:
-    st.metric("Tổng lượng tồn kho", f"{int(df_stock['Qty'].sum()):,} cái")
+    st.markdown(f"""
+    <div class="kpi-card kpi-card-border-purple">
+        <div class="kpi-label">Tổng lượng tồn kho</div>
+        <div class="kpi-value">{int(df_stock['Qty'].sum()):,} <span style="font-size:14px; font-weight:500; color:#64748B;">cái</span></div>
+    </div>
+    """, unsafe_allow_html=True)
 with col_m4:
-    st.metric("Đơn hàng trong hàng chờ", f"{len(st.session_state.orders_queue)} đơn")
+    queue_len = len(st.session_state.orders_queue)
+    st.markdown(f"""
+    <div class="kpi-card kpi-card-border-amber">
+        <div class="kpi-label">Hàng chờ tính toán (FIFO)</div>
+        <div class="kpi-value">{queue_len} <span style="font-size:14px; font-weight:500; color:#64748B;">đơn</span></div>
+    </div>
+    """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==================== BẢNG NỔI ĐIỀN ĐƠN HÀNG ====================
+# ==================== BẢNG NỔI NHẬP ĐƠN HÀNG ====================
 st.markdown("""
 <div class="floating-box">
     <div class="box-header">
-        <span>📝 BẢNG NỔI NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
+        <span>🎯 NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 with st.container():
-    # Chuẩn bị danh sách gợi ý đơn hàng
     sorted_order_keys = sorted(orders_info.keys())
     
-    col_input1, col_input2, col_input3 = st.columns([4, 3, 2], vertical_alignment="bottom")
+    # Gợi ý đơn hàng nhanh (Chips)
+    st.markdown("**Gợi ý đơn hàng mẫu:**")
+    quick_sample_orders = ['8393', '1220', '1573', '1009', '3576']
+    chip_cols = st.columns(len(quick_sample_orders) + 3)
+    for c_i, ord_code in enumerate(quick_sample_orders):
+        if ord_code in orders_info:
+            if chip_cols[c_i].button(f"👉 Đơn {ord_code}", key=f"quick_{ord_code}", use_container_width=True):
+                st.session_state.quick_selected_order = ord_code
+                st.rerun()
+
+    # Chuẩn bị danh sách đơn hàng hiển thị gọn gàng (KHÔNG để chữ Trái hay Phải)
+    order_options_clean = [f"{k} - {orders_info[k]['description']}" for k in sorted_order_keys]
+    
+    # Tìm index mặc định theo order đang chọn
+    curr_target = st.session_state.get('quick_selected_order', '8393')
+    default_idx = 0
+    for idx_item, opt_str in enumerate(order_options_clean):
+        if opt_str.startswith(f"{curr_target} - ") or opt_str == curr_target:
+            default_idx = idx_item
+            break
+            
+    col_input1, col_input2, col_input3 = st.columns([5, 3, 2], vertical_alignment="bottom")
     
     with col_input1:
-        # Hỗ trợ cả gõ tay và chọn từ dropdown
-        order_options = [f"{k} - {orders_info[k]['description']}" for k in sorted_order_keys]
+        # Ô chọn / tìm kiếm mã đơn hàng (Định dạng gọn: 8393 - Tên SP, KHÔNG có Trái/Phải)
         selected_option = st.selectbox(
-            "1. Chọn hoặc tìm kiếm Đơn hàng:",
-            options=order_options,
-            index=0 if order_options else None,
-            help="Tìm theo mã đơn (ví dụ: 1573, 1220, 1009, 3576,...) hoặc tên sản phẩm"
+            "1. Chọn hoặc gõ tìm mã đơn hàng (Ví dụ: 8393):",
+            options=order_options_clean,
+            index=default_idx if order_options_clean else None,
+            help="Chỉ cần nhập hoặc chọn mã đơn hàng (Ví dụ: 8393, 1220, 1009...). Không cần chọn Trái hay Phải."
         )
         
     with col_input2:
-        input_qty = st.number_input(
-            "2. Nhập Số lượng (bộ):",
-            min_value=1,
-            max_value=1000000,
-            value=100,
-            step=10,
-            help="Số lượng sản phẩm sẽ được tự động nhân với định mức BOM của cả Trái và Phải"
+        # Ô nhập số lượng bằng tay (KHÔNG có nút tăng giảm +/-)
+        qty_input_str = st.text_input(
+            "2. Nhập số lượng cần chạy (bộ):",
+            value="100",
+            placeholder="Nhập số lượng (Ví dụ: 100)...",
+            help="Nhập số lượng nguyên đơn bằng tay. Hệ thống tự động nhân với định mức cả Trái và Phải."
         )
         
     with col_input3:
-        btn_add = st.button("➕ BẤM OK", type="primary", use_container_width=True)
+        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True)
 
     # Hiển thị thông tin tóm tắt đơn đã chọn
     if selected_option:
         curr_order_id = selected_option.split(" - ")[0].strip()
         curr_info = orders_info.get(curr_order_id, {})
-        sides_str = ", ".join(curr_info.get('sides', []))
-        st.caption(f"ℹ️ **Đơn {curr_order_id}**: {curr_info.get('description', '')} | Vế: **{sides_str}** | Định mức: **{curr_info.get('unique_components', 0)} mã linh kiện** ({curr_info.get('total_bom_rows', 0)} dòng BOM)")
+        st.markdown(
+            f"<div style='background:#F1F5F9; border-radius:8px; padding:10px 14px; font-size:13px; color:#334155; margin-top:8px;'>"
+            f"ℹ️ <b>Đơn hàng {curr_order_id}</b>: {curr_info.get('description', '')} | "
+            f"<b>Nguyên đơn</b>: Tự động gom đủ 1 vế Trái + 1 vế Phải | "
+            f"Định mức: <b>{curr_info.get('unique_components', 0)} mã linh kiện</b>"
+            f"</div>",
+            unsafe_allow_html=True
+        )
 
-    # Xử lý khi bấm OK
+    # Xử lý khi bấm nút OK
     if btn_add:
-        if selected_option and input_qty > 0:
+        # Kiểm tra tính hợp lệ của số lượng nhập tay
+        clean_qty_val = None
+        try:
+            val = float(str(qty_input_str).replace(',', '').strip())
+            if val > 0:
+                clean_qty_val = val
+            else:
+                st.error("⚠️ Số lượng cần chạy phải lớn hơn 0.")
+        except ValueError:
+            st.error("⚠️ Vui lòng nhập số lượng hợp lệ (Ví dụ: 100).")
+            
+        if selected_option and clean_qty_val is not None:
             order_id = selected_option.split(" - ")[0].strip()
             order_desc = orders_info[order_id]['description']
             timestamp_str = datetime.datetime.now().strftime("%H:%M:%S")
             
-            # Thêm vào hàng chờ
+            # Thêm vào hàng chờ FIFO
             st.session_state.orders_queue.append({
                 'id': f"{order_id}_{len(st.session_state.orders_queue)+1}_{datetime.datetime.now().strftime('%f')}",
                 'order_no': order_id,
                 'description': order_desc,
-                'qty': input_qty,
+                'qty': clean_qty_val,
                 'created_at': timestamp_str
             })
-            st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{input_qty:,}**) vào bảng chờ tính toán!")
+            st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{clean_qty_val:,g}** bộ) vào hàng chờ tính toán!")
             st.rerun()
 
-# ==================== KHUNG GHI LẠI CHỜ ====================
-st.markdown("### ⏳ Khung ghi lại chờ tính toán so sánh (FIFO)")
+# ==================== KHUNG HÀNG CHỜ TÍNH TOÁN (FIFO) ====================
+st.markdown("### ⏳ Khung ghi nhận hàng chờ tính toán (FIFO)")
 
 if len(st.session_state.orders_queue) == 0:
-    st.info("Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng điền Đơn hàng và Số lượng ở bảng nổi phía trên rồi bấm **OK** để thêm vào.")
+    st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng nhập mã đơn hàng (Ví dụ: **8393**) và số lượng ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
 else:
-    # Hiển thị danh sách các đơn trong hàng chờ
     col_q_left, col_q_right = st.columns([8, 2], vertical_alignment="center")
     with col_q_left:
-        st.caption("Ưu tiên tồn kho: Đơn hàng ở hàng trên được trừ tồn kho trước; các đơn sau sẽ lấy phần tồn kho còn lại.")
+        st.caption("Nguyên tắc FIFO: Đơn hàng ở hàng trên được ưu tiên trừ tồn kho trước; đơn sau lấy phần tồn kho còn lại.")
     with col_q_right:
         if st.button("🗑️ Xóa toàn bộ hàng chờ", type="secondary", use_container_width=True):
             st.session_state.orders_queue = []
             st.rerun()
             
-    # Hiển thị bảng hàng chờ với nút xóa từng dòng
-    queue_data = []
-    for idx, item in enumerate(st.session_state.orders_queue, 1):
-        queue_data.append({
-            'Ưu tiên (FIFO)': f"#{idx}",
-            'Mã đơn hàng': item['order_no'],
-            'Tên sản phẩm': item['description'],
-            'Số lượng đặt': f"{item['qty']:,}",
-            'Thời gian thêm': item['created_at']
-        })
-        
-    df_queue_display = pd.DataFrame(queue_data)
-    
     # Hiển thị hàng chờ dạng bảng trực quan kèm nút xóa
     cols_header = st.columns([1, 2, 4, 2, 2, 1])
     cols_header[0].markdown("**Ưu tiên**")
     cols_header[1].markdown("**Mã đơn**")
-    cols_header[2].markdown("**Sản phẩm**")
-    cols_header[3].markdown("**Số lượng**")
+    cols_header[2].markdown("**Tên sản phẩm**")
+    cols_header[3].markdown("**Số lượng đặt**")
     cols_header[4].markdown("**Thời gian**")
     cols_header[5].markdown("**Xóa**")
     
@@ -346,7 +525,7 @@ else:
         c[0].markdown(f"**#{idx + 1}**")
         c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
         c[2].write(item['description'])
-        c[3].markdown(f"**{item['qty']:,}**")
+        c[3].markdown(f"**{item['qty']:,g}** bộ")
         c[4].write(item['created_at'])
         if c[5].button("❌", key=f"del_{item['id']}"):
             to_delete_idx = idx
@@ -359,9 +538,9 @@ st.divider()
 
 # ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
 if len(st.session_state.orders_queue) > 0:
-    st.markdown("### 📊 Kết Quả So Sánh Tồn Kho & BOM")
+    st.markdown("### 📊 Kết Quả So Sánh Tồn Kho & BOM Cần Chạy")
     
-    with st.spinner("Đang tính toán phân bổ tồn kho FIFO..."):
+    with st.spinner("Đang tính toán phân bổ tồn kho FIFO cho cả Trái & Phải..."):
         calculation_results = core_engine.calculate_inventory_allocation(
             st.session_state.orders_queue,
             df_bom,
@@ -390,10 +569,10 @@ if len(st.session_state.orders_queue) > 0:
         is_fully_ok = r.get('is_fully_ok', False)
         stt = r['stt']
         
-        status_badge = "<span class='badge-ok'>ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>THIẾU {r['missing_count']} MÃ LINH KIỆN</span>"
+        status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} MÃ LINH KIỆN</span>"
         
         with st.expander(
-            f"Ưu tiên #{stt} - Đơn hàng {order_no} | SL: {order_qty:,} | {r.get('product_title', '')} - {'✅ ĐỦ HÀNG' if is_fully_ok else '⚠️ THIẾU HÀNG'}",
+            f"Ưu tiên #{stt} - Đơn hàng {order_no} | SL: {order_qty:,g} bộ | {r.get('product_title', '')} - {'✅ ĐỦ HÀNG' if is_fully_ok else '⚠️ THIẾU HÀNG'}",
             expanded=True
         ):
             # Header đơn hàng
@@ -401,7 +580,7 @@ if len(st.session_state.orders_queue) > 0:
             with col_h1:
                 st.markdown(f"**Đơn hàng**: `{order_no}` ({r.get('product_title', '')})")
             with col_h2:
-                st.markdown(f"**Số lượng đặt**: `{order_qty:,}` bộ (Trái + Phải)")
+                st.markdown(f"**Số lượng đặt**: `{order_qty:,g}` bộ (Trái + Phải)")
             with col_h3:
                 st.markdown(f"**Trạng thái**: {status_badge}", unsafe_allow_html=True)
             with col_h4:
@@ -426,17 +605,18 @@ if len(st.session_state.orders_queue) > 0:
                 st.metric("Mã linh kiện THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
                 
             tab_summary, tab_detail = st.tabs([
-                "📋 Bảng Tổng Hợp Linh Kiện (Xuất Kho)",
-                "🔍 Chi Tiết Phân Bổ BOM Trái & Phải"
+                "📋 Bảng Tổng Hợp BOM Cần Chạy & Tồn Kho (So Sánh)",
+                "🔍 Chi Tiết Định Mức Từng Vế Trái & Phải"
             ])
             
-            # Tab 1: Tổng hợp linh kiện
+            # Tab 1: Tổng hợp BOM Cần Chạy & Tồn Kho (Đã loại bỏ BATCH và BIN)
             with tab_summary:
                 df_s = r['summary_table']
                 if len(df_s) == 0:
                     st.warning("Không có dữ liệu linh kiện.")
                 else:
-                    # Tạo bảng HTML với styling dòng xanh / đỏ trực quan
+                    st.caption("Bảng tinh gọn: Loại bỏ thông tin Batch/Bin, tập trung vào so sánh Số lượng BOM cần chạy (Trái + Phải) với Tồn kho hiện có.")
+                    
                     table_html = """
                     <div style="overflow-x: auto;">
                     <table class="styled-table">
@@ -447,14 +627,14 @@ if len(st.session_state.orders_queue) > 0:
                                 <th style="text-align:right;">ĐM Trái</th>
                                 <th style="text-align:right;">ĐM Phải</th>
                                 <th style="text-align:right;">Tổng ĐM/bộ</th>
-                                <th style="text-align:right;">SL Cần</th>
-                                <th style="text-align:right;">Tồn kho trước trừ</th>
+                                <th style="text-align:right;">SL Cần Trái</th>
+                                <th style="text-align:right;">SL Cần Phải</th>
+                                <th style="text-align:right; background:#1E3A8A; color:#FDE047;">Tổng BOM cần chạy</th>
+                                <th style="text-align:right; background:#0F172A; color:#67E8F9;">Tồn kho hiện có</th>
                                 <th style="text-align:right;">SL Cấp</th>
                                 <th style="text-align:right;">SL Thiếu</th>
                                 <th style="text-align:center;">Trạng thái</th>
                                 <th>Ghi chú</th>
-                                <th>Vị trí BIN</th>
-                                <th>Lô BATCH</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -471,14 +651,14 @@ if len(st.session_state.orders_queue) > 0:
                                 <td style="text-align:right;">{row_item['Định mức Trái']:,g}</td>
                                 <td style="text-align:right;">{row_item['Định mức Phải']:,g}</td>
                                 <td style="text-align:right;"><b>{row_item['Tổng định mức (1 bộ)']:,g}</b></td>
-                                <td style="text-align:right;"><b>{row_item['Số lượng cần']:,g}</b></td>
-                                <td style="text-align:right;">{row_item['Tồn kho trước trừ']:,g}</td>
+                                <td style="text-align:right;">{row_item['SL Cần Trái']:,g}</td>
+                                <td style="text-align:right;">{row_item['SL Cần Phải']:,g}</td>
+                                <td style="text-align:right; font-weight:700; color:#1E3A8A;">{row_item['SL BOM cần chạy']:,g}</td>
+                                <td style="text-align:right; font-weight:700;">{row_item['Số lượng tồn kho']:,g}</td>
                                 <td style="text-align:right;">{row_item['Số lượng cấp']:,g}</td>
-                                <td style="text-align:right; color:{'#991B1B' if not is_ok_row else 'inherit'};"><b>{row_item['Số lượng thiếu']:,g}</b></td>
+                                <td style="text-align:right; color:{'#DC2626' if not is_ok_row else 'inherit'}; font-weight:700;">{row_item['Số lượng thiếu']:,g}</td>
                                 <td style="text-align:center;">{badge}</td>
                                 <td><b>{row_item['Ghi chú']}</b></td>
-                                <td>{row_item['Vị trí BIN']}</td>
-                                <td>{row_item['Lô BATCH']}</td>
                             </tr>
                         """
                     table_html += """
@@ -488,7 +668,7 @@ if len(st.session_state.orders_queue) > 0:
                     """
                     st.markdown(table_html, unsafe_allow_html=True)
                     
-            # Tab 2: Chi tiết từng vế Trái/Phải theo BOM gốc
+            # Tab 2: Chi tiết theo từng vế Trái & Phải
             with tab_detail:
                 df_d = r['detail_table']
                 if len(df_d) == 0:
@@ -501,16 +681,14 @@ if len(st.session_state.orders_queue) > 0:
                             <tr>
                                 <th>Vế</th>
                                 <th>Mã SP (Product Code)</th>
-                                <th>Mã linh kiện</th>
+                                <th>Mã linh kiện (Component Code)</th>
                                 <th>Tên linh kiện</th>
                                 <th style="text-align:right;">Định mức BOM</th>
-                                <th style="text-align:right;">SL Đơn</th>
-                                <th style="text-align:right;">SL Cần</th>
+                                <th style="text-align:right;">Số lượng đơn</th>
+                                <th style="text-align:right;">Số lượng cần</th>
                                 <th style="text-align:right;">Tồn kho khả dụng</th>
                                 <th style="text-align:center;">Trạng thái</th>
                                 <th>Ghi chú</th>
-                                <th>Vị trí BIN</th>
-                                <th>Lô BATCH</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -519,7 +697,7 @@ if len(st.session_state.orders_queue) > 0:
                         is_ok_row = (row_item['Trạng thái'] == 'OK')
                         row_class = "row-ok" if is_ok_row else "row-missing"
                         badge = "<span class='badge-ok'>OK</span>" if is_ok_row else "<span class='badge-missing'>THIẾU</span>"
-                        side_badge = f"<span style='background:#E0E7FF; color:#3730A3; padding:2px 6px; border-radius:4px; font-weight:600;'>{row_item['Vế']}</span>"
+                        side_badge = f"<span style='background:#E0E7FF; color:#3730A3; padding:2px 8px; border-radius:6px; font-weight:700;'>{row_item['Vế']}</span>"
                         
                         detail_html += f"""
                             <tr class="{row_class}">
@@ -533,8 +711,6 @@ if len(st.session_state.orders_queue) > 0:
                                 <td style="text-align:right;">{row_item['Tồn kho khả dụng']:,g}</td>
                                 <td style="text-align:center;">{badge}</td>
                                 <td><b>{row_item['Ghi chú']}</b></td>
-                                <td>{row_item['Vị trí BIN']}</td>
-                                <td>{row_item['Lô BATCH']}</td>
                             </tr>
                         """
                     detail_html += """
