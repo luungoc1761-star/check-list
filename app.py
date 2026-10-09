@@ -318,6 +318,10 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
     
     return df_bom, df_stock, orders_info, readiness_data
 
+@st.cache_data
+def get_cached_readiness_excel(_readiness_data):
+    return core_engine.export_readiness_report_to_excel(_readiness_data)
+
 # Tải dữ liệu
 df_bom, df_stock, orders_info, readiness_data = get_loaded_data(
     st.session_state.custom_bom_bytes,
@@ -453,7 +457,7 @@ with st.expander(f"🚀 BÁO CÁO KHẢ THI SẢN XUẤT: {readiness_data['ready
     with col_rep_head:
         st.markdown(f"**Tổng kết đối soát kho:** Có **{readiness_data['ready_count']}** đơn hàng đã có **100% Item Code** tồn tại trong kho (sẵn sàng chạy ngay). Đã tính toán số lượng tối đa có thể sản xuất cho từng đơn dựa trên linh kiện nghẽn.")
     with col_rep_btn:
-        readiness_excel = core_engine.export_readiness_report_to_excel(readiness_data)
+        readiness_excel = get_cached_readiness_excel(readiness_data)
         st.download_button(
             label="📥 Tải Excel Báo Cáo Khả Thi Sản Xuất",
             data=readiness_excel,
