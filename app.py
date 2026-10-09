@@ -12,17 +12,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# ==================== CUSTOM CSS GIAO DIỆN HIỆN ĐẠI & SỐNG ĐỘNG ====================
+# ==================== CUSTOM CSS GIAO DIỆN HIỆN ĐẠI, TO RÕ & SỐNG ĐỘNG ====================
 st.markdown("""
 <style>
     /* Google Fonts & Base styling */
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* Ẩn dấu tăng giảm +/- spin buttons trên các ô số lượng */
+    /* Giao diện tràn viền rộng rãi, thoáng đãng */
+    .block-container {
+        max-width: 98% !important;
+        padding-top: 1.2rem !important;
+        padding-bottom: 2.5rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+    
+    /* Ẩn triệt để dấu tăng giảm +/- spin buttons trên các ô số lượng */
     input[type=number]::-webkit-inner-spin-button, 
     input[type=number]::-webkit-outer-spin-button { 
         -webkit-appearance: none !important; 
@@ -38,11 +47,11 @@ st.markdown("""
 
     /* Hero Banner hiện đại, cao cấp */
     .hero-banner {
-        background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 55%, #2563EB 100%);
-        border-radius: 16px;
-        padding: 26px 32px;
+        background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 50%, #2563EB 100%);
+        border-radius: 18px;
+        padding: 28px 36px;
         color: #FFFFFF;
-        box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.25), 0 8px 10px -6px rgba(30, 58, 138, 0.15);
+        box-shadow: 0 12px 30px -5px rgba(30, 58, 138, 0.3), 0 8px 12px -6px rgba(30, 58, 138, 0.15);
         margin-bottom: 24px;
         position: relative;
         overflow: hidden;
@@ -52,110 +61,143 @@ st.markdown("""
         position: absolute;
         top: -40px;
         right: -40px;
-        width: 180px;
-        height: 180px;
-        background: radial-gradient(circle, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0) 70%);
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 70%);
         border-radius: 50%;
         pointer-events: none;
     }
     .hero-title {
-        font-size: 26px;
-        font-weight: 800;
+        font-size: 28px;
+        font-weight: 850;
         letter-spacing: -0.5px;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 12px;
     }
     .hero-desc {
-        font-size: 14px;
+        font-size: 15px;
         color: #E2E8F0;
-        font-weight: 400;
-        line-height: 1.5;
+        font-weight: 450;
+        line-height: 1.6;
     }
     .hero-tag {
         display: inline-block;
-        background: rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.2);
         backdrop-filter: blur(8px);
-        padding: 4px 12px;
+        padding: 5px 14px;
         border-radius: 9999px;
-        font-size: 12px;
-        font-weight: 600;
-        margin-top: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 12.5px;
+        font-weight: 700;
+        margin-top: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
     }
 
-    /* KPI Metric Cards cao cấp */
+    /* KPI Metric Cards TO, SỐNG ĐỘNG */
     .kpi-container {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 14px;
+        gap: 18px;
         margin-bottom: 24px;
     }
     .kpi-card {
         background: #FFFFFF;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 16px 18px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+        border: 1.5px solid #E2E8F0;
+        border-radius: 16px;
+        padding: 22px 24px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
         position: relative;
         overflow: hidden;
+        min-height: 125px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
     }
     .kpi-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.07);
+        transform: translateY(-3px);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
     }
-    .kpi-card-border-blue { border-top: 4px solid #2563EB; }
-    .kpi-card-border-green { border-top: 4px solid #10B981; }
-    .kpi-card-border-purple { border-top: 4px solid #8B5CF6; }
-    .kpi-card-border-amber { border-top: 4px solid #F59E0B; }
+    .kpi-card-border-blue { border-top: 6px solid #2563EB; }
+    .kpi-card-border-green { border-top: 6px solid #10B981; }
+    .kpi-card-border-purple { border-top: 6px solid #8B5CF6; }
+    .kpi-card-border-amber { border-top: 6px solid #F59E0B; }
 
     .kpi-label {
-        font-size: 12px;
-        font-weight: 600;
-        color: #64748B;
+        font-size: 13px;
+        font-weight: 700;
+        color: #475569;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 4px;
+        letter-spacing: 0.8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
     }
     .kpi-value {
-        font-size: 22px;
-        font-weight: 800;
+        font-size: 34px;
+        font-weight: 900;
         color: #0F172A;
+        line-height: 1.1;
+        margin-top: 10px;
+    }
+    .kpi-unit {
+        font-size: 16px;
+        font-weight: 600;
+        color: #64748B;
+        margin-left: 4px;
     }
 
-    /* Bảng nổi nhập đơn hàng */
+    /* Hộp nhập liệu TO & NỔI BẬT */
     .floating-box {
         background: #FFFFFF;
-        border: 1.5px solid #2563EB;
-        border-radius: 14px;
-        padding: 22px;
-        box-shadow: 0 10px 25px -5px rgba(37, 99, 235, 0.12), 0 8px 10px -6px rgba(37, 99, 235, 0.08);
+        border: 2.5px solid #2563EB;
+        border-radius: 18px;
+        padding: 26px 30px;
+        box-shadow: 0 14px 35px -5px rgba(37, 99, 235, 0.16), 0 10px 15px -6px rgba(37, 99, 235, 0.08);
         margin-bottom: 24px;
     }
     .box-header {
-        font-size: 17px;
-        font-weight: 700;
+        font-size: 20px;
+        font-weight: 800;
         color: #1E3A8A;
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-bottom: 12px;
+        gap: 10px;
+        margin-bottom: 16px;
     }
 
-    /* Chip gợi ý đơn hàng */
-    .chip-container {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-        margin-bottom: 14px;
+    /* Nút chính to bản, rực rỡ */
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
+        color: white !important;
+        font-weight: 800 !important;
+        font-size: 16px !important;
+        border-radius: 12px !important;
+        padding: 10px 24px !important;
+        border: none !important;
+        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+        transition: all 0.2s ease !important;
     }
-    .chip-title {
-        font-size: 12px;
-        font-weight: 600;
-        color: #475569;
+    div.stButton > button[kind="primary"]:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
+    }
+
+    /* Thẻ tóm tắt đơn hàng kết quả (Order Result Card) */
+    .order-card {
+        background: #FFFFFF;
+        border: 1.5px solid #E2E8F0;
+        border-radius: 14px;
+        padding: 20px 24px;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
+    }
+    .order-card-ok {
+        border-left: 6px solid #10B981;
+    }
+    .order-card-missing {
+        border-left: 6px solid #EF4444;
     }
 
     /* Bảng HTML đối soát chuyên nghiệp */
@@ -163,23 +205,23 @@ st.markdown("""
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
-        font-size: 13px;
+        font-size: 13.5px;
         border-radius: 10px;
         overflow: hidden;
         margin-top: 12px;
         margin-bottom: 16px;
         border: 1px solid #CBD5E1;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
     .styled-table thead tr {
         background: linear-gradient(135deg, #1E293B 0%, #1E3A8A 100%);
         color: #FFFFFF;
         text-align: left;
         font-weight: 700;
-        font-size: 12.5px;
+        font-size: 13px;
     }
     .styled-table th {
-        padding: 10px 12px;
+        padding: 11px 12px;
         border-right: 1px solid rgba(255, 255, 255, 0.1);
         vertical-align: middle;
     }
@@ -206,15 +248,15 @@ st.markdown("""
         transition: filter 0.15s ease;
     }
 
-    /* Badges trạng thái */
+    /* Badges trạng thái TO & RÕ */
     .badge-ok {
         background-color: #DCFCE7;
         color: #15803D;
         border: 1px solid #86EFAC;
-        padding: 3px 9px;
+        padding: 5px 12px;
         border-radius: 9999px;
-        font-weight: 700;
-        font-size: 11px;
+        font-weight: 800;
+        font-size: 12px;
         display: inline-block;
         letter-spacing: 0.3px;
     }
@@ -222,10 +264,10 @@ st.markdown("""
         background-color: #FEE2E2;
         color: #B91C1C;
         border: 1px solid #FCA5A5;
-        padding: 3px 9px;
+        padding: 5px 12px;
         border-radius: 9999px;
-        font-weight: 700;
-        font-size: 11px;
+        font-weight: 800;
+        font-size: 12px;
         display: inline-block;
         letter-spacing: 0.3px;
     }
@@ -233,20 +275,11 @@ st.markdown("""
         background-color: #EFF6FF;
         color: #1D4ED8;
         border: 1px solid #BFDBFE;
-        padding: 4px 10px;
+        padding: 5px 12px;
         border-radius: 8px;
-        font-weight: 700;
-        font-size: 13px;
+        font-weight: 800;
+        font-size: 14px;
         display: inline-block;
-    }
-    
-    /* Khung danh sách chờ */
-    .queue-box {
-        background: #F8FAFC;
-        border: 1px solid #E2E8F0;
-        border-radius: 12px;
-        padding: 18px;
-        margin-bottom: 24px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -346,7 +379,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("#### 💡 Cơ chế tính toán:")
     st.markdown("""
-    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động lấy cả 2 vế **Trái và Phải**.
+    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động lấy đủ cả 2 vế **Trái và Phải**.
     - **Định mức nhân số lượng**: Hệ thống nhân riêng `ĐM Trái × SL` và `ĐM Phải × SL` rồi cộng lại thành tổng BOM cần chạy.
     - **Phân bổ FIFO**: Đơn nhập trước được ưu tiên trừ tồn kho trước.
     """)
@@ -358,47 +391,47 @@ st.markdown("""
     <div class="hero-desc">
         Tự động tính toán định mức nguyên đơn <b>(Trái + Phải)</b> theo số lượng cần chạy | 
         Phân bổ trừ tồn kho tự động theo thứ tự ưu tiên <b>FIFO</b> | 
-        Bảng so sánh trực quan, tinh gọn, không rối mắt.
+        Báo cáo Excel chuẩn hóa tiêu đề: <b>ITEM CODE</b> & <b>DESCRIPTION (tên mô tả)</b>.
     </div>
     <div class="hero-tag">✨ Sẵn sàng vận hành sản xuất</div>
 </div>
 """, unsafe_allow_html=True)
 
-# Thống kê nhanh dữ liệu (KPI Cards)
+# ==================== CÁC THẺ KPI TO BẢN & SỐNG ĐỘNG ====================
 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
 with col_m1:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-blue">
-        <div class="kpi-label">Tổng đơn hàng trong BOM</div>
-        <div class="kpi-value">{len(orders_info):,} <span style="font-size:14px; font-weight:500; color:#64748B;">đơn</span></div>
+        <div class="kpi-label">📁 Tổng Đơn Hàng Trong BOM</div>
+        <div class="kpi-value">{len(orders_info):,}<span class="kpi-unit">đơn</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col_m2:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-green">
-        <div class="kpi-label">Mã linh kiện trong kho</div>
-        <div class="kpi-value">{len(df_stock['Stock_Code'].unique()):,} <span style="font-size:14px; font-weight:500; color:#64748B;">mã</span></div>
+        <div class="kpi-label">🧩 Mã Linh Kiện Trong Kho</div>
+        <div class="kpi-value">{len(df_stock['Stock_Code'].unique()):,}<span class="kpi-unit">mã</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col_m3:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-purple">
-        <div class="kpi-label">Tổng lượng tồn kho</div>
-        <div class="kpi-value">{int(df_stock['Qty'].sum()):,} <span style="font-size:14px; font-weight:500; color:#64748B;">cái</span></div>
+        <div class="kpi-label">📦 Tổng Lượng Tồn Kho</div>
+        <div class="kpi-value">{int(df_stock['Qty'].sum()):,}<span class="kpi-unit">cái</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col_m4:
     queue_len = len(st.session_state.orders_queue)
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-amber">
-        <div class="kpi-label">Hàng chờ tính toán (FIFO)</div>
-        <div class="kpi-value">{queue_len} <span style="font-size:14px; font-weight:500; color:#64748B;">đơn</span></div>
+        <div class="kpi-label">⏳ Đơn Trong Hàng Chờ (FIFO)</div>
+        <div class="kpi-value">{queue_len}<span class="kpi-unit">đơn</span></div>
     </div>
     """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ==================== BẢNG NỔI NHẬP ĐƠN HÀNG ====================
+# ==================== BẢNG NỔI NHẬP ĐƠN HÀNG TO & NỔI BẬT ====================
 st.markdown("""
 <div class="floating-box">
     <div class="box-header">
@@ -410,8 +443,8 @@ st.markdown("""
 with st.container():
     sorted_order_keys = sorted(orders_info.keys())
     
-    # Gợi ý đơn hàng nhanh (Chips)
-    st.markdown("**Gợi ý đơn hàng mẫu:**")
+    # Gợi ý đơn hàng nhanh (Chips) to, rõ ràng
+    st.markdown("**⚡ Gợi ý chọn nhanh mã đơn:**")
     quick_sample_orders = ['8393', '1220', '1573', '1009', '3576']
     chip_cols = st.columns(len(quick_sample_orders) + 3)
     for c_i, ord_code in enumerate(quick_sample_orders):
@@ -459,17 +492,16 @@ with st.container():
         curr_order_id = selected_option.split(" - ")[0].strip()
         curr_info = orders_info.get(curr_order_id, {})
         st.markdown(
-            f"<div style='background:#F1F5F9; border-radius:8px; padding:10px 14px; font-size:13px; color:#334155; margin-top:8px;'>"
+            f"<div style='background:#F1F5F9; border-radius:10px; padding:12px 16px; font-size:14px; color:#334155; margin-top:10px; border-left:4px solid #2563EB;'>"
             f"ℹ️ <b>Đơn hàng {curr_order_id}</b>: {curr_info.get('description', '')} | "
             f"<b>Nguyên đơn</b>: Tự động gom đủ 1 vế Trái + 1 vế Phải | "
-            f"Định mức: <b>{curr_info.get('unique_components', 0)} mã linh kiện</b>"
+            f"Định mức: <b>{curr_info.get('unique_components', 0)} ITEM CODE</b>"
             f"</div>",
             unsafe_allow_html=True
         )
 
     # Xử lý khi bấm nút OK
     if btn_add:
-        # Kiểm tra tính hợp lệ của số lượng nhập tay
         clean_qty_val = None
         try:
             val = float(str(qty_input_str).replace(',', '').strip())
@@ -538,7 +570,13 @@ st.divider()
 
 # ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
 if len(st.session_state.orders_queue) > 0:
-    st.markdown("### 📊 Kết Quả So Sánh Tồn Kho & BOM Cần Chạy")
+    # Header kết quả kèm nút điều khiển ẩn/hiện bảng chi tiết
+    col_res_title, col_res_toggle = st.columns([7, 3], vertical_alignment="center")
+    with col_res_title:
+        st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
+    with col_res_toggle:
+        # Nút bật tắt hiển thị bảng chi tiết để không bị rối mắt
+        expand_all = st.toggle("👁️ Mở rộng tất cả bảng chi tiết BOM", value=False, help="Bật để mở bung toàn bộ bảng BOM của tất cả đơn hàng, tắt để ẩn gọn gàng.")
     
     with st.spinner("Đang tính toán phân bổ tồn kho FIFO cho cả Trái & Phải..."):
         calculation_results = core_engine.calculate_inventory_allocation(
@@ -548,7 +586,7 @@ if len(st.session_state.orders_queue) > 0:
         )
         
     # Nút tải file tổng hợp tất cả các đơn
-    col_dl_all, _ = st.columns([4, 6])
+    col_dl_all, _ = st.columns([5, 5])
     with col_dl_all:
         all_excel_bytes = core_engine.export_all_orders_to_excel(calculation_results)
         st.download_button(
@@ -562,54 +600,60 @@ if len(st.session_state.orders_queue) > 0:
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Hiển thị từng đơn hàng trong danh sách chờ
+    # Hiển thị từng đơn hàng trong danh sách chờ dưới dạng thẻ tóm tắt lớn
     for r in calculation_results:
         order_no = r['order_no']
         order_qty = r['order_qty']
         is_fully_ok = r.get('is_fully_ok', False)
         stt = r['stt']
         
-        status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} MÃ LINH KIỆN</span>"
+        status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} ITEM CODE</span>"
+        card_class = "order-card-ok" if is_fully_ok else "order-card-missing"
         
-        with st.expander(
-            f"Ưu tiên #{stt} - Đơn hàng {order_no} | SL: {order_qty:,g} bộ | {r.get('product_title', '')} - {'✅ ĐỦ HÀNG' if is_fully_ok else '⚠️ THIẾU HÀNG'}",
-            expanded=True
-        ):
-            # Header đơn hàng
-            col_h1, col_h2, col_h3, col_h4 = st.columns([3, 2, 2, 3], vertical_alignment="center")
-            with col_h1:
-                st.markdown(f"**Đơn hàng**: `{order_no}` ({r.get('product_title', '')})")
-            with col_h2:
-                st.markdown(f"**Số lượng đặt**: `{order_qty:,g}` bộ (Trái + Phải)")
-            with col_h3:
-                st.markdown(f"**Trạng thái**: {status_badge}", unsafe_allow_html=True)
-            with col_h4:
-                # Nút tải file Excel riêng cho đơn này
-                single_excel = core_engine.export_order_to_excel(r)
-                st.download_button(
-                    label=f"📥 Tải Excel đơn {order_no}",
-                    data=single_excel,
-                    file_name=f"Doi_Soat_Don_{order_no}_SL{int(order_qty)}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_single_{r['id']}",
-                    use_container_width=True
-                )
-                
-            # Thống kê nhanh đơn
-            c_k1, c_k2, c_k3 = st.columns(3)
-            with c_k1:
-                st.metric("Tổng mã linh kiện", f"{r['total_items']} mã")
-            with c_k2:
-                st.metric("Mã linh kiện ĐỦ", f"{r['ok_count']} mã", delta=None)
-            with c_k3:
-                st.metric("Mã linh kiện THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
-                
+        # Thẻ thông tin lớn, rõ ràng cho từng đơn hàng
+        st.markdown(f"""
+        <div class="order-card {card_class}">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <span style="font-size: 18px; font-weight: 800; color: #1E3A8A;">Ưu tiên #{stt} - Đơn hàng {order_no}</span>
+                    <span style="font-size: 15px; color: #475569; margin-left: 8px;">({r.get('product_title', '')})</span>
+                    <div style="margin-top: 4px; font-size: 14px; color: #64748B;">
+                        Số lượng đặt: <b>{order_qty:,g} bộ</b> (Trái + Phải) | Trạng thái: {status_badge}
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Hàng nút tải Excel và KPI nhanh của đơn
+        col_card_kpi, col_card_dl = st.columns([7, 3], vertical_alignment="center")
+        with col_card_kpi:
+            k1, k2, k3 = st.columns(3)
+            with k1:
+                st.metric("Tổng Item Code", f"{r['total_items']} mã")
+            with k2:
+                st.metric("Item Code ĐỦ", f"{r['ok_count']} mã", delta=None)
+            with k3:
+                st.metric("Item Code THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
+        with col_card_dl:
+            single_excel = core_engine.export_order_to_excel(r)
+            st.download_button(
+                label=f"📥 Tải Excel đơn {order_no}",
+                data=single_excel,
+                file_name=f"Doi_Soat_Don_{order_no}_SL{int(order_qty)}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_single_{r['id']}",
+                use_container_width=True
+            )
+            
+        # ==================== BẢNG CHI TIẾT ĐỐI SOÁT (MẶC ĐỊNH ẨN CHO ĐỠ RỐI MẮT) ====================
+        with st.expander(f"📋 Bảng Chi Tiết BOM Cần Chạy & Tồn Kho - Đơn {order_no} (Nhấn để Mở / Đóng)", expanded=expand_all):
             tab_summary, tab_detail = st.tabs([
                 "📋 Bảng Tổng Hợp BOM Cần Chạy & Tồn Kho (So Sánh)",
                 "🔍 Chi Tiết Định Mức Từng Vế Trái & Phải"
             ])
             
-            # Tab 1: Tổng hợp BOM Cần Chạy & Tồn Kho (Đã loại bỏ BATCH và BIN)
+            # Tab 1: Tổng hợp BOM Cần Chạy & Tồn Kho (Đã đổi sang ITEM CODE & DESCRIPTION)
             with tab_summary:
                 df_s = r['summary_table']
                 if len(df_s) == 0:
@@ -622,8 +666,8 @@ if len(st.session_state.orders_queue) > 0:
                     <table class="styled-table">
                         <thead>
                             <tr>
-                                <th>Mã linh kiện</th>
-                                <th>Tên linh kiện</th>
+                                <th>ITEM CODE</th>
+                                <th>DESCRIPTION (tên mô tả)</th>
                                 <th style="text-align:right;">ĐM Trái</th>
                                 <th style="text-align:right;">ĐM Phải</th>
                                 <th style="text-align:right;">Tổng ĐM/bộ</th>
@@ -646,8 +690,8 @@ if len(st.session_state.orders_queue) > 0:
                         
                         table_html += f"""
                             <tr class="{row_class}">
-                                <td><b>{row_item['Mã linh kiện']}</b></td>
-                                <td>{row_item['Tên linh kiện']}</td>
+                                <td><b>{row_item['ITEM CODE']}</b></td>
+                                <td>{row_item['DESCRIPTION (tên mô tả)']}</td>
                                 <td style="text-align:right;">{row_item['Định mức Trái']:,g}</td>
                                 <td style="text-align:right;">{row_item['Định mức Phải']:,g}</td>
                                 <td style="text-align:right;"><b>{row_item['Tổng định mức (1 bộ)']:,g}</b></td>
@@ -681,8 +725,8 @@ if len(st.session_state.orders_queue) > 0:
                             <tr>
                                 <th>Vế</th>
                                 <th>Mã SP (Product Code)</th>
-                                <th>Mã linh kiện (Component Code)</th>
-                                <th>Tên linh kiện</th>
+                                <th>ITEM CODE</th>
+                                <th>DESCRIPTION (tên mô tả)</th>
                                 <th style="text-align:right;">Định mức BOM</th>
                                 <th style="text-align:right;">Số lượng đơn</th>
                                 <th style="text-align:right;">Số lượng cần</th>
@@ -703,8 +747,8 @@ if len(st.session_state.orders_queue) > 0:
                             <tr class="{row_class}">
                                 <td>{side_badge}</td>
                                 <td>{row_item['Mã sản phẩm (Product Code)']}</td>
-                                <td><b>{row_item['Mã linh kiện (Component Code)']}</b></td>
-                                <td>{row_item['Tên linh kiện']}</td>
+                                <td><b>{row_item['ITEM CODE']}</b></td>
+                                <td>{row_item['DESCRIPTION (tên mô tả)']}</td>
                                 <td style="text-align:right;">{row_item['Định mức BOM']:,g}</td>
                                 <td style="text-align:right;">{row_item['Số lượng đơn']:,g}</td>
                                 <td style="text-align:right;"><b>{row_item['Số lượng cần']:,g}</b></td>
@@ -719,3 +763,5 @@ if len(st.session_state.orders_queue) > 0:
                     </div>
                     """
                     st.markdown(detail_html, unsafe_allow_html=True)
+                    
+        st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)

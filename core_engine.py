@@ -308,8 +308,8 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 stock_qty_pool[comp_code] = 0.0
                 
             summary_rows.append({
-                'Mã linh kiện': comp_code,
-                'Tên linh kiện': comp_desc,
+                'ITEM CODE': comp_code,
+                'DESCRIPTION (tên mô tả)': comp_desc,
                 'Định mức Trái': left_bom_qty,
                 'Định mức Phải': right_bom_qty,
                 'Tổng định mức (1 bộ)': total_bom_unit,
@@ -327,13 +327,13 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         # Sắp xếp ưu tiên hiển thị các mã THIẾU lên đầu để dễ nhận biết
         if len(df_summary) > 0:
             df_summary = df_summary.sort_values(
-                by=['Trạng thái', 'Số lượng thiếu', 'Mã linh kiện'],
+                by=['Trạng thái', 'Số lượng thiếu', 'ITEM CODE'],
                 ascending=[False, False, True]
             ).reset_index(drop=True)
             
         # Tạo bảng chi tiết theo từng dòng của BOM (Trái & Phải)
         detail_rows = []
-        summary_map = df_summary.set_index('Mã linh kiện').to_dict(orient='index') if len(df_summary) > 0 else {}
+        summary_map = df_summary.set_index('ITEM CODE').to_dict(orient='index') if len(df_summary) > 0 else {}
         
         for _, brow in bom_order.iterrows():
             ccode = brow['Component_Code']
@@ -347,8 +347,8 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             detail_rows.append({
                 'Vế': brow['Side'],
                 'Mã sản phẩm (Product Code)': brow['Product_Code'],
-                'Mã linh kiện (Component Code)': ccode,
-                'Tên linh kiện': brow['Component_Desc'],
+                'ITEM CODE': ccode,
+                'DESCRIPTION (tên mô tả)': brow['Component_Desc'],
                 'Định mức BOM': brow['Qty'],
                 'Số lượng đơn': order_qty,
                 'Số lượng cần': row_required,
@@ -360,7 +360,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         df_detail = pd.DataFrame(detail_rows)
         if len(df_detail) > 0:
             df_detail = df_detail.sort_values(
-                by=['Vế', 'Trạng thái', 'Mã linh kiện (Component Code)'],
+                by=['Vế', 'Trạng thái', 'ITEM CODE'],
                 ascending=[True, False, True]
             ).reset_index(drop=True)
             
