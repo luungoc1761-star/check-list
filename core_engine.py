@@ -643,3 +643,211 @@ def export_all_orders_to_excel(all_results):
     wb.save(out)
     out.seek(0)
     return out.getvalue()
+
+
+def analyze_orders_readiness(df_bom, df_stock):
+    """
+    Phân tích đối soát toàn bộ đơn hàng trong BOM đối chiếu với tồn kho hiện có:
+    - Tìm ra các đơn hàng có ĐỦ 100% ITEM CODE đồng bộ (tồn kho > 0 cho mọi linh kiện).
+    - Tính toán số lượng TỐI ĐA có thể chạy ngay dựa trên linh kiện nghẽn (bottleneck).
+    - Liệt kê các đơn chưa đủ mã và chi tiết các mã đang thiếu.
+    """
+    stock_pool = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
+    orders = get_available_orders_info(df_bom)
+    
+    ready_orders = []
+    not_ready_orders = []
+    
+    for order_no, oinfo in orders.items():
+        order_boms = df_bom[df_bom['Order_No'] == order_no]
+        avail_variants = sorted(order_boms['Variant'].unique())
+        bom_order = order_boms[order_boms['Variant'] == avail_variants[0]]
+        
+        comp_groups = bom_order.groupby('Component_Code')
+        total_comps = len(comp_groups)
+        comps_in_stock = 0
+        max_runnable_qty = float('inf')
+        bottleneck_comp = ('', '', 0.0, 0.0)
+        missing_comps = []
+        
+        for comp_code, cgroup in comp_groups:
+            left_qty = float(cgroup[cgroup['Side'] == 'Trái']['Qty'].sum())
+            right_qty = float(cgroup[cgroup['Side'] == 'Phải']['Qty'].sum())
+            other_qty = float(cgroup[~cgroup['Side'].isin(['Trái', 'Phải'])]['Qty'].sum())
+            unit_bom = left_qty + right_qty + other_qty
+            
+            stock_qty = float(stock_pool.get(comp_code, 0.0))
+            if stock_qty > 0 and unit_bom > 0:
+                comps_in_stock += 1
+                possible_qty = stock_qty // unit_bom
+                if possible_qty < max_runnable_qty:
+                    max_runnable_qty = possible_qty
+                    bottleneck_comp = (comp_code, cgroup['Component_Desc'].iloc[0], stock_qty, unit_bom)
+            else:
+                missing_comps.append((comp_code, cgroup['Component_Desc'].iloc[0]))
+                max_runnable_qty = 0
+                
+        is_ready = (comps_in_stock == total_comps and total_comps > 0 and max_runnable_qty > 0)
+        
+        if is_ready:
+            ready_orders.append({
+                'order_no': order_no,
+                'description': oinfo['description'],
+                'total_components': total_comps,
+                'max_runnable_qty': int(max_runnable_qty),
+                'bottleneck_code': bottleneck_comp[0],
+                'bottleneck_desc': bottleneck_comp[1],
+                'bottleneck_stock': bottleneck_comp[2],
+                'bottleneck_unit_bom': bottleneck_comp[3]
+            })
+        else:
+            not_ready_orders.append({
+                'order_no': order_no,
+                'description': oinfo['description'],
+                'total_components': total_comps,
+                'components_in_stock': comps_in_stock,
+                'missing_count': len(missing_comps),
+                'sample_missing': ', '.join([c[0] for c in missing_comps[:4]])
+            })
+            
+    # Sắp xếp các đơn sẵn sàng theo số lượng tối đa có thể chạy giảm dần
+    ready_orders.sort(key=lambda x: x['max_runnable_qty'], reverse=True)
+    not_ready_orders.sort(key=lambda x: x['missing_count'])
+    
+    total_count = len(orders)
+    ready_count = len(ready_orders)
+    not_ready_count = len(not_ready_orders)
+    ready_percent = round((ready_count / total_count * 100), 1) if total_count > 0 else 0.0
+    
+    return {
+        'ready_orders': ready_orders,
+        'not_ready_orders': not_ready_orders,
+        'total_orders': total_count,
+        'ready_count': ready_count,
+        'not_ready_count': not_ready_count,
+        'ready_percent': ready_percent
+    }
+
+
+def export_readiness_report_to_excel(readiness_data):
+    """
+    Xuất báo cáo khả thi sản xuất (đơn hàng đủ mã đồng bộ & số lượng tối đa) ra Excel.
+    """
+    wb = openpyxl.Workbook()
+    ws1 = wb.active
+    ws1.title = "Don_Du_Ma_San_Sang_Chay"
+    ws2 = wb.create_sheet(title="Don_Chua_Du_Ma")
+    
+    font_title = Font(name="Segoe UI", size=14, bold=True, color="1E3A8A")
+    font_sub = Font(name="Segoe UI", size=10, italic=True, color="4B5563")
+    font_header = Font(name="Segoe UI", size=10, bold=True, color="FFFFFF")
+    fill_header = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    fill_header2 = PatternFill(start_color="475569", end_color="475569", fill_type="solid")
+    
+    font_ok = Font(name="Segoe UI", size=10, color="155724")
+    fill_ok = PatternFill(start_color="D4EDDA", end_color="D4EDDA", fill_type="solid")
+    
+    border_thin = Border(
+        left=Side(style='thin', color='E5E7EB'),
+        right=Side(style='thin', color='E5E7EB'),
+        top=Side(style='thin', color='E5E7EB'),
+        bottom=Side(style='thin', color='E5E7EB')
+    )
+    
+    # ===== SHEET 1: ĐƠN SẴN SÀNG CHẠY =====
+    ws1.cell(row=1, column=1, value="BÁO CÁO CÁC ĐƠN HÀNG ĐỦ MÃ HÀNG ĐỒNG BỘ TRONG TỒN KHO").font = font_title
+    ws1.cell(row=2, column=1, value=f"Tổng số đơn đủ mã: {readiness_data['ready_count']} / {readiness_data['total_orders']} đơn ({readiness_data['ready_percent']}%) | Đã tính toán số lượng tối đa có thể sản xuất ngay").font = font_sub
+    
+    headers1 = [
+        "STT", "Mã đơn hàng", "Tên sản phẩm", "Số ITEM CODE trong BOM",
+        "SL TỐI ĐA có thể chạy (bộ)", "ITEM CODE điểm nghẽn",
+        "Tên linh kiện nghẽn", "Tồn kho linh kiện nghẽn", "ĐM bộ linh kiện nghẽn", "Đánh giá"
+    ]
+    
+    for c_i, h in enumerate(headers1, 1):
+        cell = ws1.cell(row=4, column=c_i, value=h)
+        cell.font = font_header
+        cell.fill = fill_header
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border_thin
+    ws1.row_dimensions[4].height = 28
+    
+    for idx, r in enumerate(readiness_data['ready_orders'], 1):
+        curr_row = 4 + idx
+        vals = [
+            idx,
+            r['order_no'],
+            r['description'],
+            r['total_components'],
+            r['max_runnable_qty'],
+            r['bottleneck_code'],
+            r['bottleneck_desc'],
+            r['bottleneck_stock'],
+            r['bottleneck_unit_bom'],
+            "100% ĐỦ MÃ (Sẵn sàng chạy)"
+        ]
+        for c_i, val in enumerate(vals, 1):
+            cell = ws1.cell(row=curr_row, column=c_i, value=val)
+            cell.font = font_ok
+            cell.fill = fill_ok
+            cell.border = border_thin
+            if isinstance(val, (int, float)):
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+                cell.number_format = "#,##0"
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        ws1.row_dimensions[curr_row].height = 20
+        
+    for col in ws1.columns:
+        max_len = max([len(str(cell.value or '')) for cell in col if cell.row >= 4] or [12])
+        col_letter = get_column_letter(col[0].column)
+        ws1.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
+        
+    # ===== SHEET 2: ĐƠN CHƯA ĐỦ MÃ =====
+    ws2.cell(row=1, column=1, value="DANH SÁCH ĐƠN HÀNG CHƯA ĐỦ MÃ TRONG TỒN KHO").font = font_title
+    ws2.cell(row=2, column=1, value=f"Tổng số đơn chưa đủ mã: {readiness_data['not_ready_count']} đơn").font = font_sub
+    
+    headers2 = ["STT", "Mã đơn hàng", "Tên sản phẩm", "Tổng ITEM CODE", "Số mã có trong kho", "Số mã còn thiếu", "Mẫu mã linh kiện thiếu"]
+    for c_i, h in enumerate(headers2, 1):
+        cell = ws2.cell(row=4, column=c_i, value=h)
+        cell.font = font_header
+        cell.fill = fill_header2
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = border_thin
+    ws2.row_dimensions[4].height = 28
+    
+    fill_missing = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    font_missing = Font(name="Segoe UI", size=10, color="991B1B")
+    
+    for idx, r in enumerate(readiness_data['not_ready_orders'], 1):
+        curr_row = 4 + idx
+        vals = [
+            idx,
+            r['order_no'],
+            r['description'],
+            r['total_components'],
+            r['components_in_stock'],
+            r['missing_count'],
+            r['sample_missing']
+        ]
+        for c_i, val in enumerate(vals, 1):
+            cell = ws2.cell(row=curr_row, column=c_i, value=val)
+            cell.font = font_missing
+            cell.fill = fill_missing
+            cell.border = border_thin
+            if isinstance(val, (int, float)):
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+            else:
+                cell.alignment = Alignment(horizontal="left", vertical="center")
+        ws2.row_dimensions[curr_row].height = 20
+        
+    for col in ws2.columns:
+        max_len = max([len(str(cell.value or '')) for cell in col if cell.row >= 4] or [12])
+        col_letter = get_column_letter(col[0].column)
+        ws2.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
+        
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out.getvalue()
+
