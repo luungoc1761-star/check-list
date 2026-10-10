@@ -1,8 +1,21 @@
 import datetime
 import io
+import os
+import uuid
 import streamlit as st
 import pandas as pd
 import core_engine
+
+
+def safe_columns(spec, vertical_alignment=None, **kwargs):
+    """Bọc an toàn st.columns để tương thích mọi phiên bản Streamlit (kể cả cũ hơn 1.38.0)."""
+    try:
+        if vertical_alignment:
+            return st.columns(spec, vertical_alignment=vertical_alignment, **kwargs)
+        return st.columns(spec, **kwargs)
+    except TypeError:
+        return st.columns(spec, **kwargs)
+
 
 # ==================== CẤU HÌNH TRANG STREAMLIT ====================
 st.set_page_config(
@@ -385,12 +398,34 @@ if 'quick_selected_order' not in st.session_state:
 if 'quick_selected_qty' not in st.session_state:
     st.session_state.quick_selected_qty = "100"
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_BOM_PATH = os.path.join(BASE_DIR, 'Production BOM List 10.2.xlsx')
+DEFAULT_STOCK_PATH = os.path.join(BASE_DIR, 'Stock Balance With Batch (3).xlsx')
+
 # ==================== HÀM LOAD DỮ LIỆU CÓ CACHE ====================
 @st.cache_data
 def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
-    bom_source = io.BytesIO(bom_bytes) if bom_bytes else 'Production BOM List 10.2.xlsx'
-    stock_source = io.BytesIO(stock_bytes) if stock_bytes else 'Stock Balance With Batch (3).xlsx'
-    
+    if bom_bytes:
+        bom_source = io.BytesIO(bom_bytes)
+    elif os.path.exists(DEFAULT_BOM_PATH):
+        bom_source = DEFAULT_BOM_PATH
+    elif os.path.exists('Production BOM List 10.2.xlsx'):
+        bom_source = 'Production BOM List 10.2.xlsx'
+    else:
+        bom_source = None
+
+    if stock_bytes:
+        stock_source = io.BytesIO(stock_bytes)
+    elif os.path.exists(DEFAULT_STOCK_PATH):
+        stock_source = DEFAULT_STOCK_PATH
+    elif os.path.exists('Stock Balance With Batch (3).xlsx'):
+        stock_source = 'Stock Balance With Batch (3).xlsx'
+    else:
+        stock_source = None
+
+    if bom_source is None or stock_source is None:
+        return None, None, {}, {'ready_orders': [], 'not_ready_orders': [], 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
+
     df_bom = core_engine.load_bom_data(bom_source)
     df_stock = core_engine.load_stock_data(stock_source)
     orders_info = core_engine.get_available_orders_info(df_bom)
@@ -402,6 +437,14 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
 def get_cached_readiness_excel(_readiness_data):
     return core_engine.export_readiness_report_to_excel(_readiness_data)
 
+@st.cache_data
+def get_cached_single_order_excel(_order_result):
+    return core_engine.export_order_to_excel(_order_result)
+
+@st.cache_data
+def get_cached_all_excel(_calculation_results):
+    return core_engine.export_all_orders_to_excel(_calculation_results)
+
 # Tải dữ liệu
 df_bom, df_stock, orders_info, readiness_data = get_loaded_data(
     st.session_state.custom_bom_bytes,
@@ -409,6 +452,10 @@ df_bom, df_stock, orders_info, readiness_data = get_loaded_data(
     st.session_state.custom_stock_bytes,
     st.session_state.custom_stock_name
 )
+
+if df_bom is None or df_stock is None:
+    st.error("⚠️ Không tìm thấy file dữ liệu mẫu mặc định (`Production BOM List 10.2.xlsx` và `Stock Balance With Batch (3).xlsx`). Vui lòng tải lên file dữ liệu ở thanh điều khiển bên trái để tiếp tục!")
+    st.stop()
 
 # ==================== SIDEBAR QUẢN LÝ DỮ LIỆU ====================
 with st.sidebar:
@@ -565,7 +612,7 @@ with st.container():
         else:
             return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện)"
             
-    col_input1, col_input2, col_input3 = st.columns([5, 3, 2], vertical_alignment="bottom")
+    col_input1, col_input2, col_input3 = safe_columns([5, 3, 2], vertical_alignment="bottom")
     
     with col_input1:
         # Tìm index mặc định theo order đang chọn
@@ -629,7 +676,7 @@ with st.container():
             
             # Thêm vào hàng chờ FIFO
             st.session_state.orders_queue.append({
-                'id': f"{order_id}_{len(st.session_state.orders_queue)+1}_{datetime.datetime.now().strftime('%f')}",
+                'id': f"{order_id}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                 'order_no': order_id,
                 'description': order_desc,
                 'qty': clean_qty_val,
@@ -644,7 +691,7 @@ st.markdown("### ⏳ Khung ghi nhận hàng chờ tính toán (FIFO)")
 if len(st.session_state.orders_queue) == 0:
     st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng nhập mã đơn hàng (Ví dụ: **8393**, **1009**) và số lượng ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
 else:
-    col_q_left, col_q_right = st.columns([8, 2], vertical_alignment="center")
+    col_q_left, col_q_right = safe_columns([8, 2], vertical_alignment="center")
     with col_q_left:
         st.caption("Nguyên tắc FIFO: Đơn hàng ở hàng trên được ưu tiên trừ tồn kho trước; đơn sau lấy phần tồn kho còn lại.")
     with col_q_right:
@@ -653,7 +700,7 @@ else:
             st.rerun()
             
     # Hiển thị hàng chờ dạng bảng trực quan kèm cột đồng bộ tồn kho
-    cols_header = st.columns([1, 2, 3, 2, 3, 1, 1])
+    cols_header = safe_columns([1, 2, 3, 2, 3, 1, 1])
     cols_header[0].markdown("**Ưu tiên**")
     cols_header[1].markdown("**Mã đơn**")
     cols_header[2].markdown("**Tên sản phẩm**")
@@ -664,25 +711,32 @@ else:
     
     to_delete_idx = None
     for idx, item in enumerate(st.session_state.orders_queue):
-        c = st.columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
+        c = safe_columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
         c[0].markdown(f"**#{idx + 1}**")
         c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
         c[2].write(item['description'])
-        c[3].markdown(f"**{item['qty']:,g}** bộ")
         
-        ro_match = next((x for x in readiness_data['ready_orders'] if x['order_no'] == item['order_no']), None)
+        raw_qty = item.get('qty', 0)
+        try:
+            qty_num = float(raw_qty)
+        except (ValueError, TypeError):
+            qty_num = 0.0
+        c[3].markdown(f"**{qty_num:,g}** bộ")
+        
+        ord_no_str = str(item.get('order_no', '')).strip()
+        ro_match = next((x for x in readiness_data['ready_orders'] if str(x.get('order_no', '')).strip() == ord_no_str), None)
         if ro_match:
-            max_pcs = ro_match['max_runnable_qty']
-            if item['qty'] <= max_pcs:
-                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% MÃ (Tối đa {max_pcs:,} pcs)</span>", unsafe_allow_html=True)
+            max_pcs = float(ro_match.get('max_runnable_qty', 0))
+            if qty_num <= max_pcs:
+                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% MÃ (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
             else:
-                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {max_pcs:,} pcs)</span>", unsafe_allow_html=True)
+                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
         else:
-            nr_match = next((x for x in readiness_data['not_ready_orders'] if x['order_no'] == item['order_no']), None)
-            m_count = nr_match['missing_count'] if nr_match else 'nhiều'
+            nr_match = next((x for x in readiness_data['not_ready_orders'] if str(x.get('order_no', '')).strip() == ord_no_str), None)
+            m_count = nr_match.get('missing_count', 'nhiều') if nr_match else 'nhiều'
             c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ THIẾU {m_count} MÃ TRONG KHO</span>", unsafe_allow_html=True)
             
-        c[5].write(item['created_at'])
+        c[5].write(item.get('created_at', ''))
         if c[6].button("❌", key=f"del_{item['id']}"):
             to_delete_idx = idx
             
@@ -724,7 +778,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-col_prio_select, col_prio_btn = st.columns([7, 3], vertical_alignment="bottom")
+col_prio_select, col_prio_btn = safe_columns([7, 3], vertical_alignment="bottom")
 
 with col_prio_select:
     ready_order_choices = [ro['order_no'] for ro in readiness_data['ready_orders']]
@@ -750,7 +804,7 @@ if btn_add_prio and selected_priority_orders:
         ro_match = next((x for x in readiness_data['ready_orders'] if x['order_no'] == code), None)
         if ro_match:
             st.session_state.orders_queue.append({
-                'id': f"{code}_{len(st.session_state.orders_queue)+1}_{datetime.datetime.now().strftime('%f')}",
+                'id': f"{code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                 'order_no': code,
                 'description': ro_match['description'],
                 'qty': float(ro_match['max_runnable_qty']),
@@ -762,14 +816,14 @@ if btn_add_prio and selected_priority_orders:
 # Phím tắt thêm nhanh 1 chạm cho các mã đơn phổ biến
 st.markdown("**⚡ Phím tắt thêm nhanh 1 chạm (Tự động nạp SL tối đa vào hàng chờ):**")
 sample_quick_codes = ['5151', '5171', '8333', '4151', '1009', '5804']
-chip_quick_cols = st.columns(len(sample_quick_codes))
+chip_quick_cols = safe_columns(len(sample_quick_codes))
 for idx_c, qc in enumerate(sample_quick_codes):
     ro_c = next((x for x in readiness_data['ready_orders'] if x['order_no'] == qc), None)
     if ro_c:
         with chip_quick_cols[idx_c]:
             if st.button(f"➕ {qc} ({ro_c['max_runnable_qty']:,} pcs)", key=f"fast_chip_{qc}", use_container_width=True, help=f"Thêm ngay đơn {qc} ({ro_c['max_runnable_qty']:,} pcs) vào hàng chờ"):
                 st.session_state.orders_queue.append({
-                    'id': f"{qc}_{len(st.session_state.orders_queue)+1}_{datetime.datetime.now().strftime('%f')}",
+                    'id': f"{qc}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                     'order_no': qc,
                     'description': ro_c['description'],
                     'qty': float(ro_c['max_runnable_qty']),
@@ -780,7 +834,7 @@ for idx_c, qc in enumerate(sample_quick_codes):
 st.markdown("<br>", unsafe_allow_html=True)
 
 # THANH TRA CỨU, SẮP XẾP VÀ XUẤT EXCEL
-col_search, col_sort, col_dl_ready = st.columns([5, 3, 2], vertical_alignment="bottom")
+col_search, col_sort, col_dl_ready = safe_columns([5, 3, 2], vertical_alignment="bottom")
 
 with col_search:
     search_ready = st.text_input(
@@ -835,7 +889,7 @@ tab_r1, tab_r2 = st.tabs([
 ])
 
 with tab_r1:
-    col_cap, col_cost_toggle = st.columns([7, 3], vertical_alignment="center")
+    col_cap, col_cost_toggle = safe_columns([7, 3], vertical_alignment="center")
     with col_cap:
         st.caption(f"Hiển thị đầy đủ {len(filtered_ready)} đơn hàng đồng bộ đủ 100% linh kiện trong kho, tính sẵn số lượng chạy tối đa:")
     with col_cost_toggle:
@@ -918,7 +972,7 @@ with tab_r1:
     
     # Thanh nạp nhanh 1 đơn trực tiếp từ bảng
     if filtered_ready:
-        col_sel_opt, col_act1, col_act2 = st.columns([6, 2, 2], vertical_alignment="bottom")
+        col_sel_opt, col_act1, col_act2 = safe_columns([6, 2, 2], vertical_alignment="bottom")
         with col_sel_opt:
             ready_opts = [f"{ro['order_no']} - {ro['description']} (Tối đa: {ro['max_runnable_qty']:,} pcs)" for ro in filtered_ready]
             sel_opt = st.selectbox("⚡ Hoặc chọn 1 đơn bất kỳ từ bảng trên để nạp hoặc chạy ngay:", options=ready_opts, key="sel_ready_fast_table")
@@ -936,7 +990,7 @@ with tab_r1:
                 chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
                 if chosen_item:
                     st.session_state.orders_queue.append({
-                        'id': f"{chosen_code}_{len(st.session_state.orders_queue)+1}_{datetime.datetime.now().strftime('%f')}",
+                        'id': f"{chosen_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                         'order_no': chosen_code,
                         'description': chosen_item['description'],
                         'qty': float(chosen_item['max_runnable_qty']),
@@ -986,7 +1040,7 @@ st.divider()
 # ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
 if len(st.session_state.orders_queue) > 0:
     # Header kết quả kèm nút điều khiển ẩn/hiện bảng chi tiết
-    col_res_title, col_res_toggle = st.columns([7, 3], vertical_alignment="center")
+    col_res_title, col_res_toggle = safe_columns([7, 3], vertical_alignment="center")
     with col_res_title:
         st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
     with col_res_toggle:
@@ -1001,9 +1055,9 @@ if len(st.session_state.orders_queue) > 0:
         )
         
     # Nút tải file tổng hợp tất cả các đơn
-    col_dl_all, _ = st.columns([5, 5])
+    col_dl_all, _ = safe_columns([5, 5])
     with col_dl_all:
-        all_excel_bytes = core_engine.export_all_orders_to_excel(calculation_results)
+        all_excel_bytes = get_cached_all_excel(calculation_results)
         st.download_button(
             label="📥 Tải trọn bộ Excel tất cả đơn hàng (Mỗi đơn 1 sheet)",
             data=all_excel_bytes,
@@ -1041,9 +1095,9 @@ if len(st.session_state.orders_queue) > 0:
         """, unsafe_allow_html=True)
         
         # Hàng nút tải Excel và KPI nhanh của đơn
-        col_card_kpi, col_card_dl = st.columns([7, 3], vertical_alignment="center")
+        col_card_kpi, col_card_dl = safe_columns([7, 3], vertical_alignment="center")
         with col_card_kpi:
-            k1, k2, k3 = st.columns(3)
+            k1, k2, k3 = safe_columns(3)
             with k1:
                 st.metric("Tổng Item Code", f"{r['total_items']} mã")
             with k2:
@@ -1051,7 +1105,7 @@ if len(st.session_state.orders_queue) > 0:
             with k3:
                 st.metric("Item Code THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
         with col_card_dl:
-            single_excel = core_engine.export_order_to_excel(r)
+            single_excel = get_cached_single_order_excel(r)
             st.download_button(
                 label=f"📥 Tải Excel đơn {order_no}",
                 data=single_excel,
@@ -1180,3 +1234,13 @@ if len(st.session_state.orders_queue) > 0:
                     st.markdown(detail_html, unsafe_allow_html=True)
                     
         st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+
+
+if __name__ == "__main__":
+    from streamlit.runtime import exists
+    if not exists():
+        import sys
+        from streamlit.web import cli as stcli
+        sys.argv = ["streamlit", "run", __file__]
+        sys.exit(stcli.main())
+
