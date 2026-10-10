@@ -1039,13 +1039,7 @@ st.divider()
 
 # ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
 if len(st.session_state.orders_queue) > 0:
-    # Header kết quả kèm nút điều khiển ẩn/hiện bảng chi tiết
-    col_res_title, col_res_toggle = safe_columns([7, 3], vertical_alignment="center")
-    with col_res_title:
-        st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
-    with col_res_toggle:
-        # Nút bật tắt hiển thị bảng chi tiết để không bị rối mắt
-        expand_all = st.toggle("👁️ Mở rộng tất cả bảng chi tiết BOM", value=False, help="Bật để mở bung toàn bộ bảng BOM của tất cả đơn hàng, tắt để ẩn gọn gàng.")
+    st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
     
     with st.spinner("Đang tính toán phân bổ tồn kho FIFO cho cả Trái & Phải..."):
         calculation_results = core_engine.calculate_inventory_allocation(
@@ -1120,124 +1114,6 @@ if len(st.session_state.orders_queue) > 0:
                 use_container_width=True
             )
             
-        # ==================== BẢNG CHI TIẾT ĐỐI SOÁT (MẶC ĐỊNH ẨN CHO ĐỠ RỐI MẮT) ====================
-        with st.expander(f"📋 Bảng Chi Tiết BOM Cần Chạy & Tồn Kho - Đơn {order_no} (Nhấn để Mở / Đóng)", expanded=expand_all):
-            tab_summary, tab_detail = st.tabs([
-                "📋 Bảng Tổng Hợp BOM Cần Chạy & Tồn Kho (So Sánh)",
-                "🔍 Chi Tiết Định Mức Từng Vế Trái & Phải"
-            ])
-            
-            # Tab 1: Tổng hợp BOM Cần Chạy & Tồn Kho (Đã đổi sang ITEM CODE & DESCRIPTION)
-            with tab_summary:
-                df_s = r['summary_table']
-                if len(df_s) == 0:
-                    st.warning("Không có dữ liệu linh kiện.")
-                else:
-                    st.caption("Bảng tinh gọn: Loại bỏ thông tin Batch/Bin, tập trung vào so sánh Số lượng BOM cần chạy (Trái + Phải) với Tồn kho hiện có.")
-                    
-                    table_html = """
-                    <div style="overflow-x: auto;">
-                    <table class="styled-table">
-                        <thead>
-                            <tr>
-                                <th>ITEM CODE</th>
-                                <th>DESCRIPTION (tên mô tả)</th>
-                                <th style="text-align:right;">ĐM Trái</th>
-                                <th style="text-align:right;">ĐM Phải</th>
-                                <th style="text-align:right;">Tổng ĐM/bộ</th>
-                                <th style="text-align:right;">SL Cần Trái</th>
-                                <th style="text-align:right;">SL Cần Phải</th>
-                                <th style="text-align:right; background:#1E3A8A; color:#FDE047;">Tổng BOM cần chạy</th>
-                                <th style="text-align:right; background:#0F172A; color:#67E8F9;">Tồn kho hiện có</th>
-                                <th style="text-align:right;">SL Cấp</th>
-                                <th style="text-align:right;">SL Thiếu</th>
-                                <th style="text-align:center;">Trạng thái</th>
-                                <th>Ghi chú</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                    """
-                    for _, row_item in df_s.iterrows():
-                        is_ok_row = (row_item['Trạng thái'] == 'OK')
-                        row_class = "row-ok" if is_ok_row else "row-missing"
-                        badge = "<span class='badge-ok'>OK</span>" if is_ok_row else "<span class='badge-missing'>THIẾU</span>"
-                        
-                        table_html += f"""
-                            <tr class="{row_class}">
-                                <td><b>{row_item['ITEM CODE']}</b></td>
-                                <td>{row_item['DESCRIPTION (tên mô tả)']}</td>
-                                <td style="text-align:right;">{row_item['Định mức Trái']:,g}</td>
-                                <td style="text-align:right;">{row_item['Định mức Phải']:,g}</td>
-                                <td style="text-align:right;"><b>{row_item['Tổng định mức (1 bộ)']:,g}</b></td>
-                                <td style="text-align:right;">{row_item['SL Cần Trái']:,g}</td>
-                                <td style="text-align:right;">{row_item['SL Cần Phải']:,g}</td>
-                                <td style="text-align:right; font-weight:700; color:#1E3A8A;">{row_item['SL BOM cần chạy']:,g}</td>
-                                <td style="text-align:right; font-weight:700;">{row_item['Số lượng tồn kho']:,g}</td>
-                                <td style="text-align:right;">{row_item['Số lượng cấp']:,g}</td>
-                                <td style="text-align:right; color:{'#DC2626' if not is_ok_row else 'inherit'}; font-weight:700;">{row_item['Số lượng thiếu']:,g}</td>
-                                <td style="text-align:center;">{badge}</td>
-                                <td><b>{row_item['Ghi chú']}</b></td>
-                            </tr>
-                        """
-                    table_html += """
-                        </tbody>
-                    </table>
-                    </div>
-                    """
-                    st.markdown(table_html, unsafe_allow_html=True)
-                    
-            # Tab 2: Chi tiết theo từng vế Trái & Phải
-            with tab_detail:
-                df_d = r['detail_table']
-                if len(df_d) == 0:
-                    st.warning("Không có dữ liệu chi tiết BOM.")
-                else:
-                    detail_html = """
-                    <div style="overflow-x: auto;">
-                    <table class="styled-table">
-                        <thead>
-                            <tr>
-                                <th>Vế</th>
-                                <th>Mã SP (Product Code)</th>
-                                <th>ITEM CODE</th>
-                                <th>DESCRIPTION (tên mô tả)</th>
-                                <th style="text-align:right;">Định mức BOM</th>
-                                <th style="text-align:right;">Số lượng đơn</th>
-                                <th style="text-align:right;">Số lượng cần</th>
-                                <th style="text-align:right;">Tồn kho khả dụng</th>
-                                <th style="text-align:center;">Trạng thái</th>
-                                <th>Ghi chú</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                    """
-                    for _, row_item in df_d.iterrows():
-                        is_ok_row = (row_item['Trạng thái'] == 'OK')
-                        row_class = "row-ok" if is_ok_row else "row-missing"
-                        badge = "<span class='badge-ok'>OK</span>" if is_ok_row else "<span class='badge-missing'>THIẾU</span>"
-                        side_badge = f"<span style='background:#E0E7FF; color:#3730A3; padding:2px 8px; border-radius:6px; font-weight:700;'>{row_item['Vế']}</span>"
-                        
-                        detail_html += f"""
-                            <tr class="{row_class}">
-                                <td>{side_badge}</td>
-                                <td>{row_item['Mã sản phẩm (Product Code)']}</td>
-                                <td><b>{row_item['ITEM CODE']}</b></td>
-                                <td>{row_item['DESCRIPTION (tên mô tả)']}</td>
-                                <td style="text-align:right;">{row_item['Định mức BOM']:,g}</td>
-                                <td style="text-align:right;">{row_item['Số lượng đơn']:,g}</td>
-                                <td style="text-align:right;"><b>{row_item['Số lượng cần']:,g}</b></td>
-                                <td style="text-align:right;">{row_item['Tồn kho khả dụng']:,g}</td>
-                                <td style="text-align:center;">{badge}</td>
-                                <td><b>{row_item['Ghi chú']}</b></td>
-                            </tr>
-                        """
-                    detail_html += """
-                        </tbody>
-                    </table>
-                    </div>
-                    """
-                    st.markdown(detail_html, unsafe_allow_html=True)
-                    
         st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
 
