@@ -398,40 +398,60 @@ if 'quick_selected_order' not in st.session_state:
 if 'quick_selected_qty' not in st.session_state:
     st.session_state.quick_selected_qty = "100"
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_BOM_PATH = os.path.join(BASE_DIR, 'Production BOM List 10.2.xlsx')
-DEFAULT_STOCK_PATH = os.path.join(BASE_DIR, 'Stock Balance With Batch (3).xlsx')
+def find_data_file(keywords):
+    """Tìm file dữ liệu tự động theo từ khóa trong thư mục script, thư mục làm việc và thư mục cha."""
+    search_dirs = [
+        os.path.dirname(os.path.abspath(__file__)),
+        os.getcwd(),
+        os.path.join(os.getcwd(), ".."),
+    ]
+    for d in search_dirs:
+        if not os.path.exists(d):
+            continue
+        try:
+            for fname in os.listdir(d):
+                if not fname.endswith(('.xlsx', '.xls')):
+                    continue
+                fname_lower = fname.lower()
+                if all(kw.lower() in fname_lower for kw in keywords):
+                    return os.path.join(d, fname)
+        except Exception:
+            pass
+    return None
 
 # ==================== HÀM LOAD DỮ LIỆU CÓ CACHE ====================
 @st.cache_data
 def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
+    # Xác định file BOM
     if bom_bytes:
         bom_source = io.BytesIO(bom_bytes)
-    elif os.path.exists(DEFAULT_BOM_PATH):
-        bom_source = DEFAULT_BOM_PATH
-    elif os.path.exists('Production BOM List 10.2.xlsx'):
-        bom_source = 'Production BOM List 10.2.xlsx'
     else:
-        bom_source = None
+        bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom'])
 
+    # Xác định file Tồn kho (Stock Balance)
     if stock_bytes:
         stock_source = io.BytesIO(stock_bytes)
-    elif os.path.exists(DEFAULT_STOCK_PATH):
-        stock_source = DEFAULT_STOCK_PATH
-    elif os.path.exists('Stock Balance With Batch (3).xlsx'):
-        stock_source = 'Stock Balance With Batch (3).xlsx'
     else:
-        stock_source = None
+        stock_source = find_data_file(['stock', 'balance']) or find_data_file(['stock'])
+
+    empty_readiness = {'ready_orders': [], 'not_ready_orders': [], 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
 
     if bom_source is None or stock_source is None:
-        return None, None, {}, {'ready_orders': [], 'not_ready_orders': [], 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
+        missing = []
+        if bom_source is None:
+            missing.append("Production BOM (.xlsx)")
+        if stock_source is None:
+            missing.append("Stock Balance (.xlsx)")
+        return None, None, {}, empty_readiness, f"Chưa tìm thấy file mẫu: {', '.join(missing)}"
 
-    df_bom = core_engine.load_bom_data(bom_source)
-    df_stock = core_engine.load_stock_data(stock_source)
-    orders_info = core_engine.get_available_orders_info(df_bom)
-    readiness_data = core_engine.analyze_orders_readiness(df_bom, df_stock)
-    
-    return df_bom, df_stock, orders_info, readiness_data
+    try:
+        df_bom = core_engine.load_bom_data(bom_source)
+        df_stock = core_engine.load_stock_data(stock_source)
+        orders_info = core_engine.get_available_orders_info(df_bom)
+        readiness_data = core_engine.analyze_orders_readiness(df_bom, df_stock)
+        return df_bom, df_stock, orders_info, readiness_data, None
+    except Exception as e:
+        return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu Excel: {str(e)}"
 
 @st.cache_data
 def get_cached_readiness_excel(_readiness_data):
@@ -446,18 +466,14 @@ def get_cached_all_excel(_calculation_results):
     return core_engine.export_all_orders_to_excel(_calculation_results)
 
 # Tải dữ liệu
-df_bom, df_stock, orders_info, readiness_data = get_loaded_data(
+df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
     st.session_state.custom_bom_bytes,
     st.session_state.custom_bom_name,
     st.session_state.custom_stock_bytes,
     st.session_state.custom_stock_name
 )
 
-if df_bom is None or df_stock is None:
-    st.error("⚠️ Không tìm thấy file dữ liệu mẫu mặc định (`Production BOM List 10.2.xlsx` và `Stock Balance With Batch (3).xlsx`). Vui lòng tải lên file dữ liệu ở thanh điều khiển bên trái để tiếp tục!")
-    st.stop()
-
-# ==================== SIDEBAR QUẢN LÝ DỮ LIỆU ====================
+# ==================== SIDEBAR QUẢN LÝ DỮ LIỆU (LUÔN HIỂN THỊ) ====================
 with st.sidebar:
     st.markdown("### ⚙️ Dữ Liệu Nguồn")
     st.caption("Quản lý file Tồn kho và Định mức BOM sản xuất.")
@@ -479,8 +495,11 @@ with st.sidebar:
             st.rerun()
             
     current_stock_name = st.session_state.custom_stock_name or "Stock Balance With Batch (3).xlsx (Mặc định)"
-    st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
-    
+    if df_stock is not None:
+        st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
+    else:
+        st.caption(f"📁 **{current_stock_name}** (Chưa nạp được dữ liệu)")
+        
     st.divider()
     
     # Nút upload Production BOM
@@ -500,8 +519,11 @@ with st.sidebar:
             st.rerun()
             
     current_bom_name = st.session_state.custom_bom_name or "Production BOM List 10.2.xlsx (Mặc định)"
-    st.caption(f"📁 **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
-    
+    if df_bom is not None:
+        st.caption(f"📁 **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
+    else:
+        st.caption(f"📁 **{current_bom_name}** (Chưa nạp được dữ liệu)")
+        
     st.divider()
     
     # Nút reset về file gốc
@@ -523,7 +545,7 @@ with st.sidebar:
     - **Phân bổ FIFO**: Đơn nhập trước được ưu tiên trừ tồn kho trước.
     """)
 
-# ==================== MAIN BANNER ====================
+# ==================== MAIN BANNER (LUÔN HIỂN THỊ) ====================
 st.markdown("""
 <div class="hero-banner">
     <div class="hero-title">📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO</div>
@@ -535,6 +557,20 @@ st.markdown("""
     <div class="hero-tag">✨ Sẵn sàng lên kế hoạch sản xuất</div>
 </div>
 """, unsafe_allow_html=True)
+
+# KIỂM TRA TRẠNG THÁI DỮ LIỆU
+if df_bom is None or df_stock is None:
+    st.warning(f"⚠️ **Thông báo hệ thống**: {load_error or 'Chưa thể nạp dữ liệu mặc định.'}")
+    st.markdown("""
+    <div style="background: #F8FAFC; border: 2px dashed #94A3B8; border-radius: 14px; padding: 24px; text-align: center; margin-top: 16px;">
+        <h4 style="color: #1E293B; margin-bottom: 8px;">📁 Vui lòng tải lên file dữ liệu ở thanh bên trái (Sidebar)</h4>
+        <p style="color: #64748B; font-size: 14px; max-width: 600px; margin: 0 auto;">
+            Hệ thống cần 2 file: <b>Stock Balance</b> (tồn kho hiện có) và <b>Production BOM</b> (định mức sản xuất).
+            Vui lòng mở menu thanh bên trái và tải file Excel lên để hệ thống tự động đối soát ngay lập tức!
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
 
 # ==================== CÁC THẺ KPI TO BẢN & SỐNG ĐỘNG (5 THẺ) ====================
 col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
