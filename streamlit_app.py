@@ -614,304 +614,93 @@ with col_m5:
 
 
 
-# ==================== BẢNG LỰA CHỌN ĐƠN HÀNG SẢN XUẤT (39 ĐƠN ĐỒNG BỘ ĐỦ MÃ) ====================
-st.markdown(f"""
-<div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 18px; padding: 22px 28px; color: #FFFFFF; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.25);">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-        <div>
-            <div style="font-size: 22px; font-weight: 850; display:flex; align-items:center; gap:10px;">
-                🎯 BẢNG LỰA CHỌN ĐƠN HÀNG SẢN XUẤT (39 ĐƠN ĐỒNG BỘ ĐỦ MÃ)
-            </div>
-            <div style="font-size: 14.5px; opacity: 0.95; margin-top: 6px;">
-                Danh sách <b>{readiness_data['ready_count']}</b> đơn hàng đủ 100% linh kiện trong kho | Tự động tính sẵn số lượng chạy tối đa theo tồn kho thực tế. Chọn nhanh bằng 1 chạm hoặc chọn nhiều đơn ưu tiên chạy trước (FIFO).
-            </div>
-        </div>
-        <div style="background: rgba(255,255,255,0.22); padding: 8px 18px; border-radius: 9999px; font-weight: 800; font-size: 14px; border: 1px solid rgba(255,255,255,0.35);">
-            ✨ {readiness_data['ready_count']} / {readiness_data['total_orders']} Đơn Sẵn Sàng ({readiness_data['ready_percent']}%)
-        </div>
+# ==================== BẢNG NỔI NHẬP ĐƠN HÀNG TO & NỔI BẬT ====================
+st.markdown("""
+<div class="floating-box">
+    <div class="box-header">
+        <span>🎯 NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ==================== CỤM PHÍM TẮT 1-CHẠM NHANH TIỆN DỤNG ====================
-st.markdown("**⚡ Thao tác 1-chạm nhanh tiện dụng (Tự động nạp vào hàng chờ sản xuất FIFO):**")
-
-col_touch_all, col_touch_top5, col_touch_top10 = safe_columns([4, 3, 3])
-with col_touch_all:
-    if st.button("⚡ Nạp Tất Cả 39 Đơn Đủ Mã (SL Tối Đa)", type="primary", use_container_width=True, help="1-Chạm nạp toàn bộ 39 đơn đủ mã vào hàng chờ với số lượng chạy tối đa của từng đơn"):
-        for ro in readiness_data['ready_orders']:
-            st.session_state.orders_queue.append({
-                'id': f"{ro['order_no']}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                'order_no': ro['order_no'],
-                'description': ro['description'],
-                'qty': float(ro['max_runnable_qty']),
-                'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-            })
-        st.success(f"✅ Đã thêm toàn bộ {len(readiness_data['ready_orders'])} đơn hàng vào hàng chờ sản xuất!")
-        st.rerun()
-
-with col_touch_top5:
-    if st.button("⚡ Nạp Top 5 Đơn SL Lớn Nhất", type="secondary", use_container_width=True, help="1-Chạm nạp 5 đơn hàng có số lượng chạy tối đa lớn nhất"):
-        top_5_orders = sorted(readiness_data['ready_orders'], key=lambda x: x['max_runnable_qty'], reverse=True)[:5]
-        for ro in top_5_orders:
-            st.session_state.orders_queue.append({
-                'id': f"{ro['order_no']}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                'order_no': ro['order_no'],
-                'description': ro['description'],
-                'qty': float(ro['max_runnable_qty']),
-                'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-            })
-        st.success("✅ Đã thêm Top 5 đơn hàng có SL lớn nhất vào hàng chờ!")
-        st.rerun()
-
-with col_touch_top10:
-    if st.button("⚡ Nạp Top 10 Đơn SL Lớn Nhất", type="secondary", use_container_width=True, help="1-Chạm nạp 10 đơn hàng có số lượng chạy tối đa lớn nhất"):
-        top_10_orders = sorted(readiness_data['ready_orders'], key=lambda x: x['max_runnable_qty'], reverse=True)[:10]
-        for ro in top_10_orders:
-            st.session_state.orders_queue.append({
-                'id': f"{ro['order_no']}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                'order_no': ro['order_no'],
-                'description': ro['description'],
-                'qty': float(ro['max_runnable_qty']),
-                'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-            })
-        st.success("✅ Đã thêm Top 10 đơn hàng vào hàng chờ!")
-        st.rerun()
-
-# Các phím tắt 1-chạm cho các đơn hàng phổ biến hàng đầu
-st.markdown("**⚡ Phím tắt 1-chạm cho các mã đơn chạy nhiều nhất:**")
-popular_codes = ['5171', '8333', '4151', '1009', '5804', '5151', '8617', '8817']
-pop_cols = safe_columns(len(popular_codes))
-for idx_pop, pcode in enumerate(popular_codes):
-    ro_p = next((x for x in readiness_data['ready_orders'] if x['order_no'] == pcode), None)
-    if ro_p:
-        with pop_cols[idx_pop]:
-            if st.button(f"➕ {pcode} ({ro_p['max_runnable_qty']:,} pcs)", key=f"btn_pop_{pcode}", use_container_width=True, help=f"1-Chạm nạp đơn {pcode} ({ro_p['max_runnable_qty']:,} pcs) vào hàng chờ"):
-                st.session_state.orders_queue.append({
-                    'id': f"{pcode}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                    'order_no': pcode,
-                    'description': ro_p['description'],
-                    'qty': float(ro_p['max_runnable_qty']),
-                    'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-                })
-                st.rerun()
-
-st.markdown("<br>", unsafe_allow_html=True)
-
-# ==================== TABS LỰA CHỌN ĐƠN HÀNG ====================
-tab_sel_ready, tab_sel_custom, tab_sel_missing = st.tabs([
-    f"🌟 1. BẢNG 39 ĐƠN ĐỒNG BỘ ĐỦ MÃ (SẴN SÀNG CHẠY NGAY)",
-    "✍️ 2. NHẬP ĐƠN THỦ CÔNG & TÙY CHỈNH SỐ LƯỢNG",
-    f"⚠️ 3. DANH SÁCH {readiness_data['not_ready_count']} ĐƠN CHƯA ĐỦ MÃ TRONG KHO"
-])
-
-with tab_sel_ready:
-    # THANH TRA CỨU, SẮP XẾP VÀ XUẤT EXCEL
-    col_search, col_sort, col_dl_ready = safe_columns([5, 3, 2], vertical_alignment="bottom")
-    
-    with col_search:
-        search_ready = st.text_input(
-            "🔍 Tìm kiếm nhanh trong 39 đơn (gõ 5151, 8333, tên sản phẩm...):",
-            value="",
-            placeholder="Gõ mã đơn hoặc tên sản phẩm...",
-            key="search_ready_input_tab"
-        )
-        
-    with col_sort:
-        sort_option = st.selectbox(
-            "📊 Sắp xếp danh sách 39 đơn:",
-            options=[
-                "🔥 SL tối đa chạy được (Cao ➜ Thấp)",
-                "🔢 SL tối đa chạy được (Thấp ➜ Cao)",
-                "🏷️ Mã đơn hàng (A ➜ Z)",
-                "📝 Tên sản phẩm (A ➜ Z)"
-            ],
-            index=0,
-            key="sort_ready_orders_key_tab"
-        )
-        
-    with col_dl_ready:
-        readiness_excel = get_cached_readiness_excel(readiness_data)
-        st.download_button(
-            label="📥 Tải Excel 39 Đơn Sẵn Sàng",
-            data=readiness_excel,
-            file_name=f"Bao_Cao_39_Don_San_Sang_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True
-        )
-
-    # Lọc và sắp xếp danh sách 39 đơn
-    filtered_ready = [
-        ro for ro in readiness_data['ready_orders']
-        if search_ready.strip().lower() in ro['order_no'].lower() or search_ready.strip().lower() in ro['description'].lower()
-    ] if search_ready.strip() else list(readiness_data['ready_orders'])
-
-    if "Cao ➜ Thấp" in sort_option:
-        filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=True)
-    elif "Thấp ➜ Cao" in sort_option:
-        filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=False)
-    elif "Mã đơn hàng" in sort_option:
-        filtered_ready.sort(key=lambda x: x['order_no'])
-    elif "Tên sản phẩm" in sort_option:
-        filtered_ready.sort(key=lambda x: x['description'])
-
-    # BẢNG 39 ĐƠN TRỰC QUAN & CHUYÊN NGHIỆP (ẨN HOÀN TOÀN MÃ CODE RỐI MẮT)
-    ready_table_html = f"""
-    <div style="overflow-x: auto; margin-top: 10px;">
-    <table class="styled-table">
-        <thead>
-            <tr>
-                <th style="width: 60px; text-align:center;">STT</th>
-                <th style="width: 140px; text-align:center;">Mã Đơn Hàng</th>
-                <th>Tên Sản Phẩm (Mô tả nguyên đơn)</th>
-                <th style="text-align:center; width: 150px;">Độ Sẵn Sàng</th>
-                <th style="text-align:center; width: 230px; background:#059669; color:#FFFFFF; font-size:14.5px;">SL TỐI ĐA CHẠY ĐƯỢC</th>
-                <th style="text-align:center; width: 150px;">Trạng Thái</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
-    for idx_r, r_item in enumerate(filtered_ready, 1):
-        ready_table_html += f"""
-            <tr class="row-ok">
-                <td style="text-align:center;"><b>#{idx_r}</b></td>
-                <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
-                <td><b>{r_item['description']}</b></td>
-                <td style="text-align:center; font-weight:700; color:#059669;">Đủ {r_item['total_components']} mã linh kiện</td>
-                <td style="text-align:center; font-size:17px; font-weight:900; color:#059669; background:#ECFDF5;">
-                    <b>{r_item['max_runnable_qty']:,} bộ</b>
-                </td>
-                <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
-            </tr>
-        """
-    ready_table_html += """
-        </tbody>
-    </table>
-    </div>
-    """
-    st.markdown(ready_table_html, unsafe_allow_html=True)
-
-    # CÔNG CỤ CHỌN NHIỀU ĐƠN ƯU TIÊN CHẠY TRƯỚC (FIFO)
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 12px; padding: 14px 18px; margin-bottom: 12px;">
-        <span style="font-size:14px; font-weight:800; color:#1E293B;">🎯 Chọn một hoặc nhiều đơn để ưu tiên trừ tồn kho FIFO:</span>
-        <span style="font-size:13px; color:#64748B; margin-left: 8px;">Thứ tự chọn trong ô bên dưới sẽ là thứ tự ưu tiên trong hàng chờ sản xuất.</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    col_prio_select, col_prio_btn = safe_columns([7, 3], vertical_alignment="bottom")
-    with col_prio_select:
-        ready_order_choices = [ro['order_no'] for ro in readiness_data['ready_orders']]
-        selected_priority_orders = st.multiselect(
-            "Chọn các đơn hàng muốn chạy (thứ tự chọn = thứ tự ưu tiên trừ tồn kho FIFO):",
-            options=ready_order_choices,
-            format_func=lambda code: f"Đơn {code} - {orders_info.get(code, {}).get('description', '')} (Tối đa: {next((x['max_runnable_qty'] for x in readiness_data['ready_orders'] if x['order_no'] == code), 0):,} bộ)",
-            placeholder="Gõ hoặc chọn các đơn cần chạy (Ví dụ: 5171, 8333, 4151, 1009, 5151...)...",
-            key="multiselect_prio_orders_tab"
-        )
-    with col_prio_btn:
-        btn_add_prio = st.button(
-            f"🚀 ĐƯA {len(selected_priority_orders)} ĐƠN ĐÃ CHỌN VÀO HÀNG CHỜ" if selected_priority_orders else "🚀 ĐƯA CÁC ĐƠN VÀO HÀNG CHỜ",
-            type="primary",
-            use_container_width=True,
-            disabled=len(selected_priority_orders) == 0,
-            key="btn_add_prio_tab",
-            help="Thêm toàn bộ các đơn đã chọn vào hàng chờ FIFO phía dưới theo đúng thứ tự ưu tiên đã chọn."
-        )
-
-    if btn_add_prio and selected_priority_orders:
-        for code in selected_priority_orders:
-            ro_match = next((x for x in readiness_data['ready_orders'] if x['order_no'] == code), None)
-            if ro_match:
-                st.session_state.orders_queue.append({
-                    'id': f"{code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                    'order_no': code,
-                    'description': ro_match['description'],
-                    'qty': float(ro_match['max_runnable_qty']),
-                    'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-                })
-        st.success(f"✅ Đã thêm {len(selected_priority_orders)} đơn hàng vào hàng chờ ưu tiên sản xuất!")
-        st.rerun()
-
-    # NẠP NHANH 1 ĐƠN BẤT KỲ TRỰC TIẾP TỪ BẢNG
-    if filtered_ready:
-        col_sel_opt, col_act1, col_act2 = safe_columns([6, 2, 2], vertical_alignment="bottom")
-        with col_sel_opt:
-            ready_opts = [f"{ro['order_no']} - {ro['description']} (Tối đa: {ro['max_runnable_qty']:,} bộ)" for ro in filtered_ready]
-            sel_opt = st.selectbox("⚡ Hoặc chọn 1 đơn bất kỳ từ bảng trên để nạp ngay (SL Tối Đa) hoặc tùy chỉnh SL:", options=ready_opts, key="sel_ready_fast_table_tab")
-        with col_act1:
-            if st.button("➕ Nạp vào hàng chờ", key="btn_act_add_tab", type="primary", use_container_width=True):
-                chosen_code = sel_opt.split(" - ")[0].strip()
-                chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
-                if chosen_item:
-                    st.session_state.orders_queue.append({
-                        'id': f"{chosen_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                        'order_no': chosen_code,
-                        'description': chosen_item['description'],
-                        'qty': float(chosen_item['max_runnable_qty']),
-                        'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-                    })
-                    st.rerun()
-        with col_act2:
-            if st.button("✍️ Nạp lên ô tùy chỉnh", key="btn_act_load_tab", use_container_width=True):
-                chosen_code = sel_opt.split(" - ")[0].strip()
-                chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
-                if chosen_item:
-                    st.session_state.quick_selected_order = chosen_code
-                    st.session_state.quick_selected_qty = str(int(chosen_item['max_runnable_qty']))
-                    st.info(f"Đã nạp đơn {chosen_code} lên Tab 2 'Nhập Đơn Thủ Công'. Bạn có thể chuyển sang Tab 2 để chỉnh số lượng.")
-                    st.rerun()
-
-with tab_sel_custom:
-    st.caption("Dành cho trường hợp muốn chạy số lượng tùy chỉnh hoặc chọn đơn bất kỳ trong 99 đơn hàng:")
+with st.container():
     sorted_order_keys = sorted(orders_info.keys())
     
+    # Gợi ý chọn nhanh các đơn đủ mã đồng bộ sẵn sàng chạy
+    st.markdown("**⚡ Gợi ý chọn nhanh các đơn đủ mã đồng bộ (1 Chạm để điền mã & SL tối đa):**")
+    quick_sample_orders = ['5151', '5171', '8333', '4151', '1009', '5804']
+    chip_cols = safe_columns(len(quick_sample_orders))
+    for c_i, ord_code in enumerate(quick_sample_orders):
+        if ord_code in orders_info:
+            ro_m = next((ro for ro in readiness_data['ready_orders'] if ro['order_no'] == ord_code), None)
+            chip_label = f"🟢 Đơn {ord_code} ({ro_m['max_runnable_qty']:,} pcs)" if ro_m else f"⚠️ Đơn {ord_code}"
+            if chip_cols[c_i].button(chip_label, key=f"quick_{ord_code}", use_container_width=True):
+                st.session_state.quick_selected_order = ord_code
+                if ro_m:
+                    st.session_state.quick_selected_qty = str(int(ro_m['max_runnable_qty']))
+                st.rerun()
+
+    # Chuẩn bị danh sách đơn hàng hiển thị gọn gàng và trực quan
     def format_order_item(k):
         ro = next((x for x in readiness_data['ready_orders'] if x['order_no'] == k), None)
         if ro:
-            return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ - Tối đa: {ro['max_runnable_qty']:,} bộ)"
+            return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ - Tối đa: {ro['max_runnable_qty']:,} pcs)"
         else:
-            return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện trong kho)"
+            return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện)"
             
     col_input1, col_input2, col_input3 = safe_columns([5, 3, 2], vertical_alignment="bottom")
+    
     with col_input1:
-        curr_target = st.session_state.get('quick_selected_order', '5171')
+        # Tìm index mặc định theo order đang chọn
+        curr_target = st.session_state.get('quick_selected_order', '5151')
         default_idx = sorted_order_keys.index(curr_target) if curr_target in sorted_order_keys else 0
+        
         selected_code = st.selectbox(
-            "1. Chọn mã đơn hàng:",
+            "1. Chọn hoặc gõ tìm mã đơn hàng (Ví dụ: 5151, 8333...):",
             options=sorted_order_keys,
             format_func=format_order_item,
             index=default_idx if sorted_order_keys else None,
-            key="custom_order_sel"
+            help="Hệ thống gắn nhãn 🟢 [ĐỦ 100% MÃ] cho các đơn sẵn sàng chạy ngay kèm số lượng tối đa."
         )
+        
     with col_input2:
+        # Ô nhập số lượng bằng tay (KHÔNG có nút tăng giảm +/-)
         qty_input_str = st.text_input(
             "2. Nhập số lượng cần chạy (bộ):",
             value=st.session_state.get('quick_selected_qty', "100"),
             placeholder="Nhập số lượng (Ví dụ: 100)...",
-            key="custom_qty_input",
-            help="Hệ thống tự động nhân với định mức cả Trái và Phải."
+            help="Nhập số lượng nguyên đơn bằng tay. Hệ thống tự động nhân với định mức cả Trái và Phải."
         )
+        
     with col_input3:
-        btn_add_custom = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True, key="btn_add_custom_tab")
+        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True, help="Đưa đơn hàng và số lượng đã nhập vào bảng chờ đối soát FIFO")
 
+    # Hiển thị thông tin tóm tắt đơn đã chọn
     if selected_code:
         curr_order_id = selected_code
         curr_info = orders_info.get(curr_order_id, {})
+        # Kiểm tra xem đơn này có nằm trong danh sách đủ mã không
         ready_match = next((ro for ro in readiness_data['ready_orders'] if ro['order_no'] == curr_order_id), None)
-        ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ (Tối đa chạy được {ready_match['max_runnable_qty']:,} bộ)</span>" if ready_match else "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
+        if ready_match:
+            ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
+            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Đang vướng mã có SL ít nhất: <b>{ready_match['bottleneck_code']}</b> ({ready_match['bottleneck_desc']} - tồn {int(ready_match['bottleneck_stock']):,} cái)</span>"
+        else:
+            ready_badge_str = "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
+            bottleneck_str = ""
+        
         st.markdown(
-            f"<div style='background:#F1F5F9; border-radius:10px; padding:12px 16px; font-size:14px; color:#334155; margin-top:8px; border-left:4px solid #2563EB;'>"
+            f"<div style='background:#F1F5F9; border-radius:10px; padding:12px 16px; font-size:14px; color:#334155; margin-top:10px; border-left:4px solid #2563EB;'>"
             f"ℹ️ <b>Đơn hàng {curr_order_id}</b>: {curr_info.get('description', '')} | "
-            f"<b>Nguyên đơn</b>: Trái + Phải | "
+            f"<b>Nguyên đơn</b>: 1 vế Trái + 1 vế Phải | "
+            f"Định mức: <b>{curr_info.get('unique_components', 0)} ITEM CODE</b> | "
             f"Độ sẵn sàng: {ready_badge_str}"
+            f"{bottleneck_str}"
             f"</div>",
             unsafe_allow_html=True
         )
 
-    if btn_add_custom:
+    # Xử lý khi bấm nút OK
+    if btn_add:
         clean_qty_val = None
         try:
             val = float(str(qty_input_str).replace(',', '').strip())
@@ -926,6 +715,8 @@ with tab_sel_custom:
             order_id = selected_code
             order_desc = orders_info[order_id]['description']
             timestamp_str = datetime.datetime.now().strftime("%H:%M:%S")
+            
+            # Thêm vào hàng chờ FIFO
             st.session_state.orders_queue.append({
                 'id': f"{order_id}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                 'order_no': order_id,
@@ -933,61 +724,20 @@ with tab_sel_custom:
                 'qty': clean_qty_val,
                 'created_at': timestamp_str
             })
-            st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{clean_qty_val:,g}** bộ) vào hàng chờ tính toán!")
+            st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{clean_qty_val:,g}** bộ) vào hàng chờ đối soát!")
             st.rerun()
-
-with tab_sel_missing:
-    st.caption("Danh sách các đơn hàng chưa thể sản xuất do thiếu linh kiện trong kho (Đã ẩn các mã code kỹ thuật để giao diện tinh gọn):")
-    not_ready_table_html = """
-    <div style="overflow-x: auto;">
-    <table class="styled-table">
-        <thead>
-            <tr>
-                <th style="width: 60px; text-align:center;">STT</th>
-                <th style="width: 140px; text-align:center;">Mã Đơn Hàng</th>
-                <th>Tên Sản Phẩm</th>
-                <th style="text-align:center; width: 150px;">Tổng Linh Kiện</th>
-                <th style="text-align:center; width: 180px; background:#DC2626; color:#FFFFFF;">Số Mã THIẾU Trong Kho</th>
-                <th style="text-align:center; width: 160px;">Trạng Thái</th>
-            </tr>
-        </thead>
-        <tbody>
-    """
-    for idx_nr, nr_item in enumerate(readiness_data['not_ready_orders'], 1):
-        not_ready_table_html += f"""
-            <tr class="row-missing">
-                <td style="text-align:center;"><b>#{idx_nr}</b></td>
-                <td style="text-align:center;"><span class="badge-order" style="background:#FEE2E2; color:#991B1B; border-color:#FCA5A5;">{nr_item['order_no']}</span></td>
-                <td><b>{nr_item['description']}</b></td>
-                <td style="text-align:center;">{nr_item['total_components']} mã</td>
-                <td style="text-align:center; font-weight:800; color:#DC2626;">Thiếu {nr_item['missing_count']} mã linh kiện</td>
-                <td style="text-align:center;"><span class="badge-missing">⚠️ Chưa đủ linh kiện</span></td>
-            </tr>
-        """
-    not_ready_table_html += """
-        </tbody>
-    </table>
-    </div>
-    """
-    st.markdown(not_ready_table_html, unsafe_allow_html=True)
-
-st.markdown("<br>", unsafe_allow_html=True)
 
 # ==================== KHUNG HÀNG CHỜ TÍNH TOÁN (FIFO) ====================
-st.markdown("### ⏳ Khung Ghi Nhận Hàng Chờ Tính Toán (FIFO)")
+st.markdown("### ⏳ Khung ghi nhận hàng chờ tính toán (FIFO)")
 
 if len(st.session_state.orders_queue) == 0:
-    st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng bấm các nút **1-Chạm** hoặc chọn đơn ở bảng phía trên để đưa đơn vào tính toán.")
+    st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng nhập mã đơn hàng (Ví dụ: **8393**, **1009**) và số lượng ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
 else:
-    col_q_left, col_q_mid, col_q_right = safe_columns([6, 2, 2], vertical_alignment="center")
+    col_q_left, col_q_right = safe_columns([8, 2], vertical_alignment="center")
     with col_q_left:
         st.caption("Nguyên tắc FIFO: Đơn hàng ở hàng trên được ưu tiên trừ tồn kho trước; đơn sau lấy phần tồn kho còn lại.")
-    with col_q_mid:
-        if st.button("🔄 Đảo ngược thứ tự", type="secondary", use_container_width=True, help="Đảo ngược lại thứ tự ưu tiên các đơn trong hàng chờ"):
-            st.session_state.orders_queue.reverse()
-            st.rerun()
     with col_q_right:
-        if st.button("🗑️ Xóa toàn bộ", type="secondary", use_container_width=True):
+        if st.button("🗑️ Xóa toàn bộ hàng chờ", type="secondary", use_container_width=True):
             st.session_state.orders_queue = []
             st.rerun()
             
@@ -1020,9 +770,9 @@ else:
         if ro_match:
             max_pcs = float(ro_match.get('max_runnable_qty', 0))
             if qty_num <= max_pcs:
-                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% MÃ (Tối đa {int(max_pcs):,} bộ)</span>", unsafe_allow_html=True)
+                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% MÃ (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
             else:
-                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {int(max_pcs):,} bộ)</span>", unsafe_allow_html=True)
+                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
         else:
             nr_match = next((x for x in readiness_data['not_ready_orders'] if str(x.get('order_no', '')).strip() == ord_no_str), None)
             m_count = nr_match.get('missing_count', 'nhiều') if nr_match else 'nhiều'
@@ -1035,6 +785,255 @@ else:
     if to_delete_idx is not None:
         st.session_state.orders_queue.pop(to_delete_idx)
         st.rerun()
+
+st.divider()
+
+# ==================== BÁO CÁO TRỰC QUAN NHANH TOÀN BỘ 39 ĐƠN ĐỒNG BỘ ĐỦ MÃ SẴN SÀNG CHẠY ====================
+st.markdown(f"""
+<div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 16px; padding: 22px 28px; color: #FFFFFF; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+            <div style="font-size: 22px; font-weight: 850; display:flex; align-items:center; gap:10px;">
+                🚀 BÁO CÁO NHANH: TOÀN BỘ {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ MÃ ĐỒNG BỘ SẴN SÀNG CHẠY
+            </div>
+            <div style="font-size: 14.5px; opacity: 0.95; margin-top: 6px;">
+                Tổng hợp đầy đủ <b>{readiness_data['ready_count']}</b> đơn hàng đủ 100% Item Code trong kho | Tự động tính sẵn số lượng chạy tối đa theo tồn kho thực tế và thông báo mã hàng vướng giới hạn số lượng ít nhất.
+            </div>
+        </div>
+        <div style="background: rgba(255,255,255,0.22); padding: 8px 18px; border-radius: 9999px; font-weight: 800; font-size: 14px; border: 1px solid rgba(255,255,255,0.35);">
+            🎯 {readiness_data['ready_count']} / {readiness_data['total_orders']} Đơn Hàng Sẵn Sàng ({readiness_data['ready_percent']}%)
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# KHUNG ĐIỀU KHIỂN: LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC (FIFO)
+st.markdown("""
+<div style="background: #FFFFFF; border: 2px solid #059669; border-radius: 14px; padding: 18px 22px; margin-bottom: 18px; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.08);">
+    <div style="font-size: 16px; font-weight: 850; color: #064E3B; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
+        <span>🎯 LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC VÀO HÀNG CHỜ (FIFO)</span>
+        <span style="font-size: 12px; font-weight: 700; color: #059669; background: #ECFDF5; padding: 3px 10px; border-radius: 9999px; border: 1px solid #A7F3D0;">Tùy chọn đa năng</span>
+    </div>
+    <div style="font-size: 13.5px; color: #475569;">
+        Chọn một hoặc nhiều đơn từ danh sách 39 đơn đủ mã. Thứ tự bạn chọn trong ô chính là <b>thứ tự ưu tiên trừ tồn kho FIFO</b> trong hàng chờ sản xuất.
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+col_prio_select, col_prio_btn = safe_columns([7, 3], vertical_alignment="bottom")
+
+with col_prio_select:
+    ready_order_choices = [ro['order_no'] for ro in readiness_data['ready_orders']]
+    selected_priority_orders = st.multiselect(
+        "1. Chọn các đơn hàng muốn ưu tiên chạy (thứ tự chọn = thứ tự ưu tiên trừ tồn kho FIFO):",
+        options=ready_order_choices,
+        format_func=lambda code: f"Đơn {code} - {orders_info.get(code, {}).get('description', '')} (Tối đa: {next((x['max_runnable_qty'] for x in readiness_data['ready_orders'] if x['order_no'] == code), 0):,} pcs)",
+        placeholder="Gõ hoặc chọn các đơn cần chạy (Ví dụ: 5151, 8333, 4151, 1009, 5171...)...",
+        key="multiselect_prio_orders"
+    )
+
+with col_prio_btn:
+    btn_add_prio = st.button(
+        f"🚀 ĐƯA {len(selected_priority_orders)} ĐƠN ĐÃ CHỌN VÀO HÀNG CHỜ" if selected_priority_orders else "🚀 ĐƯA CÁC ĐƠN VÀO HÀNG CHỜ",
+        type="primary",
+        use_container_width=True,
+        disabled=len(selected_priority_orders) == 0,
+        help="Thêm toàn bộ các đơn đã chọn vào hàng chờ FIFO phía trên theo đúng thứ tự ưu tiên đã chọn."
+    )
+
+if btn_add_prio and selected_priority_orders:
+    for code in selected_priority_orders:
+        ro_match = next((x for x in readiness_data['ready_orders'] if x['order_no'] == code), None)
+        if ro_match:
+            st.session_state.orders_queue.append({
+                'id': f"{code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
+                'order_no': code,
+                'description': ro_match['description'],
+                'qty': float(ro_match['max_runnable_qty']),
+                'created_at': datetime.datetime.now().strftime("%H:%M:%S")
+            })
+    st.success(f"✅ Đã thêm {len(selected_priority_orders)} đơn hàng vào hàng chờ ưu tiên sản xuất!")
+    st.rerun()
+
+# Phím tắt thêm nhanh 1 chạm cho các mã đơn phổ biến
+st.markdown("**⚡ Phím tắt thêm nhanh 1 chạm (Tự động nạp SL tối đa vào hàng chờ):**")
+sample_quick_codes = ['5151', '5171', '8333', '4151', '1009', '5804']
+chip_quick_cols = safe_columns(len(sample_quick_codes))
+for idx_c, qc in enumerate(sample_quick_codes):
+    ro_c = next((x for x in readiness_data['ready_orders'] if x['order_no'] == qc), None)
+    if ro_c:
+        with chip_quick_cols[idx_c]:
+            if st.button(f"➕ {qc} ({ro_c['max_runnable_qty']:,} pcs)", key=f"fast_chip_{qc}", use_container_width=True, help=f"Thêm ngay đơn {qc} ({ro_c['max_runnable_qty']:,} pcs) vào hàng chờ"):
+                st.session_state.orders_queue.append({
+                    'id': f"{qc}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
+                    'order_no': qc,
+                    'description': ro_c['description'],
+                    'qty': float(ro_c['max_runnable_qty']),
+                    'created_at': datetime.datetime.now().strftime("%H:%M:%S")
+                })
+                st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# THANH TRA CỨU, SẮP XẾP VÀ XUẤT EXCEL
+col_search, col_sort, col_dl_ready = safe_columns([5, 3, 2], vertical_alignment="bottom")
+
+with col_search:
+    search_ready = st.text_input(
+        "🔍 Tìm kiếm nhanh trong 39 đơn (gõ 5151, 8333, tên SP...):",
+        value="",
+        placeholder="Gõ mã đơn hoặc tên sản phẩm...",
+        key="search_ready_input"
+    )
+
+with col_sort:
+    sort_option = st.selectbox(
+        "📊 Sắp xếp danh sách 39 đơn:",
+        options=[
+            "🔥 SL tối đa chạy được (Cao ➜ Thấp)",
+            "🔢 SL tối đa chạy được (Thấp ➜ Cao)",
+            "🏷️ Mã đơn hàng (A ➜ Z)",
+            "📝 Tên sản phẩm (A ➜ Z)"
+        ],
+        index=0,
+        key="sort_ready_orders_key"
+    )
+
+with col_dl_ready:
+    readiness_excel = get_cached_readiness_excel(readiness_data)
+    st.download_button(
+        label="📥 Tải Excel 39 Đơn Sẵn Sàng",
+        data=readiness_excel,
+        file_name=f"Bao_Cao_Don_Du_Ma_San_Sang_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary",
+        use_container_width=True
+    )
+
+# Lọc và sắp xếp danh sách 39 đơn
+filtered_ready = [
+    ro for ro in readiness_data['ready_orders']
+    if search_ready.strip().lower() in ro['order_no'].lower() or search_ready.strip().lower() in ro['description'].lower()
+] if search_ready.strip() else list(readiness_data['ready_orders'])
+
+if "Cao ➜ Thấp" in sort_option:
+    filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=True)
+elif "Thấp ➜ Cao" in sort_option:
+    filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=False)
+elif "Mã đơn hàng" in sort_option:
+    filtered_ready.sort(key=lambda x: x['order_no'])
+elif "Tên sản phẩm" in sort_option:
+    filtered_ready.sort(key=lambda x: x['description'])
+
+tab_r1, tab_r2 = st.tabs([
+    f"✅ Bảng Toàn Bộ Đơn Hàng Đủ Mã Đồng Bộ ({len(filtered_ready)} / {readiness_data['ready_count']} đơn - Sẵn Sàng Chạy)",
+    f"⚠️ Danh Sách Đơn Hàng Chưa Đủ Mã ({readiness_data['not_ready_count']} đơn - Cần Nhập Thêm Linh Kiện)"
+])
+
+with tab_r1:
+    st.caption(f"Hiển thị đầy đủ {len(filtered_ready)} đơn hàng đồng bộ đủ 100% linh kiện trong kho (Ẩn hoàn toàn đoạn cost, thể hiện trực quan thông tin quan trọng & thông báo mã hàng vướng số lượng ít nhất):")
+    
+    # BẢNG GIAO DIỆN CHÍNH: ẨN TOÀN BỘ ĐOẠN COST, CHỈ HIỂN THỊ THÔNG TIN QUAN TRỌNG VÀ THÔNG BÁO MÃ VƯỚNG SL ÍT NHẤT
+    ready_table_html = """
+    <div style="overflow-x: auto;">
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th style="width: 50px; text-align:center;">STT</th>
+                <th style="width: 120px; text-align:center;">Mã Đơn Hàng</th>
+                <th>Tên Sản Phẩm (Mô tả nguyên đơn)</th>
+                <th style="text-align:center; width: 190px; background:#059669; color:#FFFFFF; font-size:14.5px;">SL TỐI ĐA CHẠY ĐƯỢC</th>
+                <th>Thông Báo Mã Hàng Đang Vướng (Số Lượng Ít Nhất)</th>
+                <th style="text-align:center; width: 140px;">Trạng Thái</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    for idx_r, r_item in enumerate(filtered_ready, 1):
+        bottleneck_info = f"<span style='color:#D97706; font-weight:800;'>⚠️ Vướng mã: {r_item['bottleneck_code']}</span> - <span style='color:#1E293B; font-weight:600;'>{r_item['bottleneck_desc']}</span> <span style='color:#64748B; font-size:12px;'>(Tồn kho còn: {int(r_item['bottleneck_stock']):,} cái)</span>"
+        ready_table_html += f"""
+            <tr class="row-ok">
+                <td style="text-align:center;"><b>#{idx_r}</b></td>
+                <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
+                <td><b>{r_item['description']}</b></td>
+                <td style="text-align:center; font-size:17px; font-weight:900; color:#059669; background:#ECFDF5;">
+                    <b>{r_item['max_runnable_qty']:,} pcs</b>
+                </td>
+                <td>{bottleneck_info}</td>
+                <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
+            </tr>
+        """
+    ready_table_html += """
+        </tbody>
+    </table>
+    </div>
+    """
+    st.markdown(ready_table_html, unsafe_allow_html=True)
+    
+    # Thanh nạp nhanh 1 đơn trực tiếp từ bảng
+    if filtered_ready:
+        col_sel_opt, col_act1, col_act2 = safe_columns([6, 2, 2], vertical_alignment="bottom")
+        with col_sel_opt:
+            ready_opts = [f"{ro['order_no']} - {ro['description']} (Tối đa: {ro['max_runnable_qty']:,} pcs)" for ro in filtered_ready]
+            sel_opt = st.selectbox("⚡ Hoặc chọn 1 đơn bất kỳ từ bảng trên để nạp hoặc chạy ngay:", options=ready_opts, key="sel_ready_fast_table")
+        with col_act1:
+            if st.button("⚡ Nạp lên ô nhập", key="btn_act_load", use_container_width=True):
+                chosen_code = sel_opt.split(" - ")[0].strip()
+                chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
+                if chosen_item:
+                    st.session_state.quick_selected_order = chosen_code
+                    st.session_state.quick_selected_qty = str(int(chosen_item['max_runnable_qty']))
+                    st.rerun()
+        with col_act2:
+            if st.button("➕ Thêm vào hàng chờ", key="btn_act_add", use_container_width=True):
+                chosen_code = sel_opt.split(" - ")[0].strip()
+                chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
+                if chosen_item:
+                    st.session_state.orders_queue.append({
+                        'id': f"{chosen_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
+                        'order_no': chosen_code,
+                        'description': chosen_item['description'],
+                        'qty': float(chosen_item['max_runnable_qty']),
+                        'created_at': datetime.datetime.now().strftime("%H:%M:%S")
+                    })
+                    st.rerun()
+
+with tab_r2:
+    st.caption("Danh sách các đơn hàng chưa thể sản xuất do thiếu linh kiện trong kho (Đã ẩn đoạn cost và thông tin kỹ thuật rườm rà):")
+    not_ready_table_html = """
+    <div style="overflow-x: auto;">
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th style="width: 50px; text-align:center;">STT</th>
+                <th style="width: 120px; text-align:center;">Mã Đơn Hàng</th>
+                <th>Tên Sản Phẩm</th>
+                <th style="text-align:center; width: 140px;">Tổng Item Code</th>
+                <th style="text-align:center; width: 140px;">Có Trong Kho</th>
+                <th style="text-align:center; width: 150px; background:#DC2626; color:#FFFFFF;">Số Mã THIẾU</th>
+                <th style="text-align:center; width: 140px;">Trạng Thái</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    for idx_nr, nr_item in enumerate(readiness_data['not_ready_orders'], 1):
+        not_ready_table_html += f"""
+            <tr class="row-missing">
+                <td style="text-align:center;"><b>#{idx_nr}</b></td>
+                <td style="text-align:center;"><span class="badge-order" style="background:#FEE2E2; color:#991B1B; border-color:#FCA5A5;">{nr_item['order_no']}</span></td>
+                <td>{nr_item['description']}</td>
+                <td style="text-align:center;">{nr_item['total_components']} mã</td>
+                <td style="text-align:center;">{nr_item['components_in_stock']} mã</td>
+                <td style="text-align:center; font-weight:800; color:#DC2626;">Thiếu {nr_item['missing_count']} mã</td>
+                <td style="text-align:center;"><span class="badge-missing">⚠️ Chưa đủ linh kiện</span></td>
+            </tr>
+        """
+    not_ready_table_html += """
+        </tbody>
+    </table>
+    </div>
+    """
+    st.markdown(not_ready_table_html, unsafe_allow_html=True)
 
 st.divider()
 
