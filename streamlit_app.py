@@ -454,15 +454,15 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
         return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu Excel: {str(e)}"
 
 @st.cache_data
-def get_cached_readiness_excel(_readiness_data):
+def get_cached_readiness_excel(cache_key, _readiness_data):
     return core_engine.export_readiness_report_to_excel(_readiness_data)
 
 @st.cache_data
-def get_cached_single_order_excel(_order_result):
+def get_cached_single_order_excel(cache_key, _order_result):
     return core_engine.export_order_to_excel(_order_result)
 
 @st.cache_data
-def get_cached_all_excel(_calculation_results):
+def get_cached_all_excel(cache_key, _calculation_results):
     return core_engine.export_all_orders_to_excel(_calculation_results)
 
 # Tải dữ liệu
@@ -683,7 +683,7 @@ with st.container():
         ready_match = next((ro for ro in readiness_data['ready_orders'] if ro['order_no'] == curr_order_id), None)
         if ready_match:
             ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
-            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Đang vướng mã có SL ít nhất: <b>{ready_match['bottleneck_code']}</b> ({ready_match['bottleneck_desc']} - tồn {int(ready_match['bottleneck_stock']):,} cái)</span>"
+            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Vướng linh kiện có SL ít nhất: <b>{ready_match['bottleneck_desc']}</b> (Tồn kho còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
         else:
             ready_badge_str = "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
             bottleneck_str = ""
@@ -900,7 +900,8 @@ with col_sort:
     )
 
 with col_dl_ready:
-    readiness_excel = get_cached_readiness_excel(readiness_data)
+    readiness_key = (readiness_data['ready_count'], readiness_data['not_ready_count'], readiness_data['total_orders'])
+    readiness_excel = get_cached_readiness_excel(readiness_key, readiness_data)
     st.download_button(
         label="📥 Tải Excel 39 Đơn Sẵn Sàng",
         data=readiness_excel,
@@ -931,35 +932,33 @@ tab_r1, tab_r2 = st.tabs([
 ])
 
 with tab_r1:
-    st.caption(f"Hiển thị đầy đủ {len(filtered_ready)} đơn hàng đồng bộ đủ 100% linh kiện trong kho (Ẩn hoàn toàn đoạn cost, thể hiện trực quan thông tin quan trọng & thông báo mã hàng vướng số lượng ít nhất):")
+    st.caption(f"Hiển thị đầy đủ {len(filtered_ready)} đơn hàng đồng bộ đủ 100% linh kiện trong kho (Đã ẩn hoàn toàn các đoạn cost/mã kỹ thuật dài, giao diện tinh gọn, trực quan và chuyên nghiệp):")
     
-    # BẢNG GIAO DIỆN CHÍNH: ẨN TOÀN BỘ ĐOẠN COST, CHỈ HIỂN THỊ THÔNG TIN QUAN TRỌNG VÀ THÔNG BÁO MÃ VƯỚNG SL ÍT NHẤT
+    # BẢNG GIAO DIỆN CHÍNH: ẨN TOÀN BỘ ĐOẠN COST, CHỈ HIỂN THỊ CÁC THÔNG TIN QUAN TRỌNG NHẤT
     ready_table_html = """
     <div style="overflow-x: auto;">
     <table class="styled-table">
         <thead>
             <tr>
                 <th style="width: 50px; text-align:center;">STT</th>
-                <th style="width: 120px; text-align:center;">Mã Đơn Hàng</th>
+                <th style="width: 130px; text-align:center;">Mã Đơn Hàng</th>
                 <th>Tên Sản Phẩm (Mô tả nguyên đơn)</th>
-                <th style="text-align:center; width: 190px; background:#059669; color:#FFFFFF; font-size:14.5px;">SL TỐI ĐA CHẠY ĐƯỢC</th>
-                <th>Thông Báo Mã Hàng Đang Vướng (Số Lượng Ít Nhất)</th>
-                <th style="text-align:center; width: 140px;">Trạng Thái</th>
+                <th style="text-align:center; width: 220px; background:#059669; color:#FFFFFF; font-size:15px;">SL TỐI ĐA CHẠY ĐƯỢC</th>
+                <th style="text-align:center; width: 160px;">Trạng Thái</th>
             </tr>
         </thead>
         <tbody>
     """
     for idx_r, r_item in enumerate(filtered_ready, 1):
-        bottleneck_info = f"<span style='color:#D97706; font-weight:800;'>⚠️ Vướng mã: {r_item['bottleneck_code']}</span> - <span style='color:#1E293B; font-weight:600;'>{r_item['bottleneck_desc']}</span> <span style='color:#64748B; font-size:12px;'>(Tồn kho còn: {int(r_item['bottleneck_stock']):,} cái)</span>"
+        hover_info = f"Linh kiện vướng SL ít nhất: {r_item['bottleneck_desc']} (Tồn kho còn: {int(r_item['bottleneck_stock']):,} cái)"
         ready_table_html += f"""
             <tr class="row-ok">
                 <td style="text-align:center;"><b>#{idx_r}</b></td>
                 <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
                 <td><b>{r_item['description']}</b></td>
-                <td style="text-align:center; font-size:17px; font-weight:900; color:#059669; background:#ECFDF5;">
+                <td style="text-align:center; font-size:17px; font-weight:900; color:#059669; background:#ECFDF5;" title="{hover_info}">
                     <b>{r_item['max_runnable_qty']:,} pcs</b>
                 </td>
-                <td>{bottleneck_info}</td>
                 <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
             </tr>
         """
@@ -1056,13 +1055,17 @@ if len(st.session_state.orders_queue) > 0:
         )
         
     # Nút tải file tổng hợp tất cả các đơn
-    col_dl_all, _ = safe_columns([5, 5])
+    col_dl_all, _ = safe_columns([6, 4])
     with col_dl_all:
-        all_excel_bytes = get_cached_all_excel(calculation_results)
+        queue_cache_key = tuple(
+            (item.get('id', ''), item['order_no'], item['order_qty'], item.get('ok_count', 0), item.get('missing_count', 0))
+            for item in calculation_results
+        )
+        all_excel_bytes = get_cached_all_excel(queue_cache_key, calculation_results)
         st.download_button(
-            label="📥 Tải trọn bộ Excel tất cả đơn hàng (Mỗi đơn 1 sheet)",
+            label=f"📥 Tải trọn bộ Excel đối soát ({len(calculation_results)} đơn hàng - mỗi đơn 1 sheet)",
             data=all_excel_bytes,
-            file_name=f"Doi_Soat_Tong_Hop_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            file_name=f"Doi_Soat_Tong_Hop_{len(calculation_results)}_Don_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
@@ -1096,7 +1099,7 @@ if len(st.session_state.orders_queue) > 0:
         """, unsafe_allow_html=True)
         
         # Hàng nút tải Excel và KPI nhanh của đơn
-        col_card_kpi, col_card_dl = safe_columns([7, 3], vertical_alignment="center")
+        col_card_kpi, col_card_dl = safe_columns([6, 4], vertical_alignment="center")
         with col_card_kpi:
             k1, k2, k3 = safe_columns(3)
             with k1:
@@ -1106,11 +1109,12 @@ if len(st.session_state.orders_queue) > 0:
             with k3:
                 st.metric("Item Code THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
         with col_card_dl:
-            single_excel = get_cached_single_order_excel(r)
+            single_cache_key = f"{r.get('id', '')}_{order_no}_{order_qty}_{r.get('ok_count', 0)}_{r.get('missing_count', 0)}"
+            single_excel = get_cached_single_order_excel(single_cache_key, r)
             st.download_button(
-                label=f"📥 Tải Excel đơn {order_no}",
+                label=f"📥 Tải File Đối Soát Excel Đơn {order_no}",
                 data=single_excel,
-                file_name=f"Doi_Soat_Don_{order_no}_SL{int(order_qty)}.xlsx",
+                file_name=f"Doi_Soat_Don_{order_no}_SL{int(order_qty)}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key=f"dl_single_{r['id']}",
                 use_container_width=True
