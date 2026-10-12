@@ -428,11 +428,15 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
     else:
         bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom'])
 
-    # Xác định file Tồn kho (Stock Balance)
+    # Xác định file Tồn kho (Ưu tiên Stock 61, sau đó Stock Balance)
     if stock_bytes:
         stock_source = io.BytesIO(stock_bytes)
     else:
-        stock_source = find_data_file(['stock', 'balance']) or find_data_file(['stock'])
+        stock_source = (
+            find_data_file(['stock', '61']) 
+            or find_data_file(['stock', 'balance']) 
+            or find_data_file(['stock'])
+        )
 
     empty_readiness = {'ready_orders': [], 'not_ready_orders': [], 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
 
@@ -441,7 +445,7 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
         if bom_source is None:
             missing.append("Production BOM (.xlsx)")
         if stock_source is None:
-            missing.append("Stock Balance (.xlsx)")
+            missing.append("Tồn kho (Stock 61 / Stock Balance) (.xlsx)")
         return None, None, {}, empty_readiness, f"Chưa tìm thấy file mẫu: {', '.join(missing)}"
 
     try:
@@ -478,13 +482,13 @@ with st.sidebar:
     st.markdown("### ⚙️ Dữ Liệu Nguồn")
     st.caption("Quản lý file Tồn kho và Định mức BOM sản xuất.")
     
-    # Nút upload Stock Balance
-    st.markdown("#### 1. File Tồn kho (Stock Balance)")
+    # Nút upload Tồn kho
+    st.markdown("#### 1. File Tồn kho (Stock 61 / Stock Balance)")
     uploaded_stock = st.file_uploader(
-        "Tải lên file Stock Balance mới",
+        "Tải lên file Tồn kho mới",
         type=["xlsx", "xls"],
         key="uploader_stock",
-        help="Cột quan trọng: Stock Code, Qty"
+        help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
     )
     if uploaded_stock is not None:
         if st.session_state.custom_stock_name != uploaded_stock.name:
@@ -494,7 +498,16 @@ with st.sidebar:
             st.success(f"Đã nạp file tồn kho: {uploaded_stock.name}")
             st.rerun()
             
-    current_stock_name = st.session_state.custom_stock_name or "Stock Balance With Batch (3).xlsx (Mặc định)"
+    default_stock_path = (
+        find_data_file(['stock', '61']) 
+        or find_data_file(['stock', 'balance']) 
+        or find_data_file(['stock'])
+    )
+    default_stock_label = (
+        f"{os.path.basename(default_stock_path)} (Mặc định)"
+        if default_stock_path else "Stock 61.xlsx (Mặc định)"
+    )
+    current_stock_name = st.session_state.custom_stock_name or default_stock_label
     if df_stock is not None:
         st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
     else:
@@ -565,7 +578,7 @@ if df_bom is None or df_stock is None:
     <div style="background: #F8FAFC; border: 2px dashed #94A3B8; border-radius: 14px; padding: 24px; text-align: center; margin-top: 16px;">
         <h4 style="color: #1E293B; margin-bottom: 8px;">📁 Vui lòng tải lên file dữ liệu ở thanh bên trái (Sidebar)</h4>
         <p style="color: #64748B; font-size: 14px; max-width: 600px; margin: 0 auto;">
-            Hệ thống cần 2 file: <b>Stock Balance</b> (tồn kho hiện có) và <b>Production BOM</b> (định mức sản xuất).
+            Hệ thống cần 2 file: <b>Stock 61</b> (hoặc Stock Balance - tồn kho hiện có) và <b>Production BOM</b> (định mức sản xuất).
             Vui lòng mở menu thanh bên trái và tải file Excel lên để hệ thống tự động đối soát ngay lập tức!
         </p>
     </div>

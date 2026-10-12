@@ -1,4 +1,4 @@
-# Hệ Thống Đối Soát BOM Sản Xuất & Tồn Kho (BOM vs Stock Balance)
+# Hệ Thống Đối Soát BOM Sản Xuất & Tồn Kho (BOM vs Stock 61 / Stock Balance)
 
 Ứng dụng web tự động hóa đối soát định mức sản xuất (BOM) và tồn kho thực tế theo cơ chế **FIFO (First-In, First-Out)**, hỗ trợ nhận diện tự động vế Trái/Phải và xuất báo cáo Excel chuyên nghiệp.
 
@@ -24,16 +24,16 @@
 4. **Trực quan Hóa Kết Quả & Xuất Báo Cáo Excel:**
    - **Đủ vật tư**: Đánh dấu trạng thái **OK**, tô dòng **màu xanh lá**.
    - **Thiếu vật tư**: Đánh dấu trạng thái **THIẾU**, tô dòng **màu đỏ** và hiển thị rõ số lượng thiếu ở cột Ghi chú (ví dụ: `Thiếu 50`).
-   - Hiển thị chi tiết vị trí **BIN** và số lô **BATCH** trong kho.
+   - Hiển thị chi tiết vị trí **BIN** và số lô **BATCH** trong kho (nếu có).
    - Hỗ trợ xuất file Excel định dạng chuyên nghiệp:
      - Xuất file riêng cho từng đơn hàng.
      - Xuất file gộp toàn bộ các đơn hàng trong hàng chờ (mỗi đơn 1 sheet).
 
 5. **Nhập File Dữ Liệu Mới Tiện Lợi:**
-   - Nút nhập file **Stock Balance** mới.
+   - Hỗ trợ file tồn kho **Stock 61** (`Item code`, `Wh`, `Qty`) và **Stock Balance** (`Stock Code`, `Warehouse`, `BATCH`, `BIN`, `Qty`).
+   - Tự động ưu tiên nạp file **Stock 61.xlsx** làm nguồn tồn kho mặc định.
    - Nút nhập file **Production BOM** mới.
    - Tự động nhận diện cấu trúc tiêu đề và các trường dữ liệu giống file mẫu, không cần sửa đổi file gốc.
-   - Tự động sử dụng 2 file dữ liệu mẫu có sẵn nếu chưa tải file mới.
 
 ---
 
@@ -61,5 +61,6 @@ streamlit run app.py
 ├── .streamlit/
 │   └── config.toml                    # Cấu hình giao diện Streamlit
 ├── Production BOM List 10.2.xlsx      # File mẫu dữ liệu BOM
+├── Stock 61.xlsx                      # File mẫu tồn kho Kho 61 (Mặc định)
 └── Stock Balance With Batch (3).xlsx  # File mẫu tồn kho Stock Balance
 ```

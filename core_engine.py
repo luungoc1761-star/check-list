@@ -1,10 +1,10 @@
 """
 core_engine.py
-Xử lý logic đối soát BOM (Production BOM List) và Tồn kho (Stock Balance).
+Xử lý logic đối soát BOM (Production BOM List) và Tồn kho (Stock 61 / Stock Balance).
 - Nhận diện Product Code:
     + Bắt đầu bằng 1: 4 số đầu là mã đơn hàng, 2 số tiếp theo (19: Trái, 20: Phải).
     + Bắt đầu bằng 8: bỏ số 8, 4 số tiếp theo là mã đơn hàng, số thứ 6 (1: Trái, 2: Phải).
-- Cột Component Code đối soát với Stock Code trong Stock Balance.
+- Cột Component Code đối soát với Item code / Stock Code trong Stock 61 (hoặc Stock Balance).
 - Quản lý trừ kho theo cơ chế FIFO theo thứ tự đơn hàng nhập vào hàng chờ.
 - Xuất file Excel định dạng chuyên nghiệp với tô màu xanh dòng OK, đỏ dòng THIẾU.
 """
@@ -125,13 +125,30 @@ def load_bom_data(file_source):
     return df
 
 
+def find_stock_header_row_from_df(df_raw, max_rows=20):
+    """
+    Tìm chỉ số dòng chứa tiêu đề bảng tồn kho.
+    Hỗ trợ linh hoạt cả:
+    - File Stock 61: 'Item code', 'Wh', 'Qty'
+    - File Stock Balance: 'Stock Code', 'Warehouse', 'Qty',...
+    - Các file tiếng Việt hoặc định dạng kho thông dụng khác.
+    """
+    code_kws = ['stock code', 'item code', 'item_code', 'component code', 'stock_code', 'mã vt', 'mã linh kiện', 'mã hàng', 'mã', 'item', 'code']
+    qty_kws = ['qty', 'quantity', 'số lượng', 'sl', 'tồn kho', 'tồn']
+    for i in range(min(max_rows, len(df_raw))):
+        row_str = " ".join([str(x).lower().strip() for x in df_raw.iloc[i].values if pd.notna(x)])
+        if any(k in row_str for k in code_kws) and any(k in row_str for k in qty_kws):
+            return i
+    return 0
+
+
 def load_stock_data(file_source):
     """
-    Đọc dữ liệu Stock Balance từ đường dẫn file hoặc file-like object.
+    Đọc dữ liệu Tồn kho từ đường dẫn file hoặc file-like object (hỗ trợ Stock 61, Stock Balance,...).
     Tự động nhận diện dòng tiêu đề và chuẩn hóa cột.
     """
     df_raw = pd.read_excel(file_source, header=None, nrows=20)
-    h_idx = find_header_row_from_df(df_raw, ['stock code', 'qty'])
+    h_idx = find_stock_header_row_from_df(df_raw)
     
     if hasattr(file_source, 'seek'):
         file_source.seek(0)
@@ -141,24 +158,35 @@ def load_stock_data(file_source):
     col_map = {}
     for c in df.columns:
         c_clean = str(c).strip().lower()
-        if 'stock code' in c_clean:
-            col_map[c] = 'Stock_Code'
-        elif 'batch' in c_clean:
-            col_map[c] = 'BATCH'
-        elif 'bin' in c_clean:
-            col_map[c] = 'BIN'
-        elif c_clean == 'qty' or 'qty' in c_clean:
+        if any(k in c_clean for k in ['stock code', 'item code', 'item_code', 'stock_code', 'component code', 'mã vt', 'mã linh kiện', 'mã hàng']) or c_clean in ('item', 'code', 'mã'):
+            if 'Stock_Code' not in col_map.values():
+                col_map[c] = 'Stock_Code'
+        elif any(k in c_clean for k in ['warehouse', 'wh', 'kho']):
+            if 'Warehouse' not in col_map.values():
+                col_map[c] = 'Warehouse'
+        elif 'batch' in c_clean or 'lô' in c_clean:
+            if 'BATCH' not in col_map.values():
+                col_map[c] = 'BATCH'
+        elif 'bin' in c_clean or 'vị trí' in c_clean:
+            if 'BIN' not in col_map.values():
+                col_map[c] = 'BIN'
+        elif c_clean == 'qty' or any(k in c_clean for k in ['qty', 'quantity', 'số lượng', 'sl', 'tồn kho', 'tồn']):
             if 'Qty' not in col_map.values():
                 col_map[c] = 'Qty'
-        elif 'warehouse' in c_clean:
-            col_map[c] = 'Warehouse'
-        elif 'date' in c_clean:
-            col_map[c] = 'Date'
+        elif 'date' in c_clean or 'ngày' in c_clean:
+            if 'Date' not in col_map.values():
+                col_map[c] = 'Date'
             
     df = df.rename(columns=col_map)
+    if 'Stock_Code' not in df.columns:
+        raise ValueError("Không tìm thấy cột Mã linh kiện / Item Code / Stock Code trong file tồn kho.")
+    if 'Qty' not in df.columns:
+        raise ValueError("Không tìm thấy cột Số lượng (Qty) trong file tồn kho.")
+        
     df = df[pd.notna(df['Stock_Code'])].copy()
-    
     df['Stock_Code'] = df['Stock_Code'].astype(str).str.strip()
+    df = df[~df['Stock_Code'].str.lower().isin(['', 'nan', 'none'])].copy()
+    
     df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
     
     for c in ['BATCH', 'BIN', 'Warehouse']:
