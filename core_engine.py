@@ -291,6 +291,15 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         # Gom nhóm theo từng linh kiện (Component Code)
         comp_groups = bom_order.groupby('Component_Code')
         summary_rows = []
+        detail_rows = []
+
+        def get_side_priority(side):
+            s = str(side).strip().lower()
+            if any(k in s for k in ['phải', 'phai', 'right', 'rh']):
+                return 0
+            elif any(k in s for k in ['trái', 'trai', 'left', 'lh']):
+                return 1
+            return 2
         
         for comp_code, cgroup in comp_groups:
             comp_desc = cgroup['Component_Desc'].iloc[0]
@@ -318,22 +327,71 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             # Tổng số lượng BOM cần chạy cho nguyên đơn (Trái + Phải)
             total_required = req_left + req_right + req_other
             
-            # Tồn kho khả dụng trước khi trừ
-            curr_stock = float(stock_qty_pool.get(comp_code, 0.0))
+            # Tồn kho khả dụng hiện có trước khi trừ cho linh kiện này
+            initial_stock = float(stock_qty_pool.get(comp_code, 0.0))
+            running_stock = initial_stock
             
-            # Đối soát số lượng và trừ tồn kho
-            if curr_stock >= total_required:
-                allocated = total_required
-                shortage = 0.0
-                status = "OK"
-                note = "Đủ hàng"
-                stock_qty_pool[comp_code] = curr_stock - total_required
+            # Sắp xếp các dòng BOM của linh kiện theo thứ tự trừ dần: Phải (0) -> Trái (1) -> Khác (2)
+            cgroup_sorted = cgroup.copy()
+            cgroup_sorted['_prio'] = cgroup_sorted['Side'].apply(get_side_priority)
+            cgroup_sorted = cgroup_sorted.sort_values(by=['_prio', 'Product_Code']).drop(columns=['_prio'])
+            
+            comp_allocated = 0.0
+            comp_shortage = 0.0
+            
+            for _, brow in cgroup_sorted.iterrows():
+                b_side = brow['Side']
+                b_pcode = brow['Product_Code']
+                b_pdesc = brow['Component_Desc']
+                b_qty = float(brow['Qty'])
+                row_required = b_qty * order_qty  # Phần BOM hàng cần của dòng này
+                
+                # Tồn kho khả dụng của dòng này trước khi trừ
+                row_avail_stock = max(0.0, running_stock)
+                
+                # Công thức tính trừ dần:
+                # Trừ vế phải trước, số còn lại trừ tiếp cho vế trái, chỉ báo thiếu số lượng cho mã thiếu cuối cùng
+                if running_stock >= row_required:
+                    row_allocated = row_required
+                    row_shortage = 0.0
+                    running_stock -= row_required
+                    row_status = "OK"
+                    row_note = "Đủ hàng"
+                else:
+                    row_allocated = max(0.0, running_stock)
+                    row_shortage = row_required - row_allocated
+                    running_stock = 0.0
+                    row_status = "THIẾU"
+                    row_note = f"Thiếu {int(row_shortage) if row_shortage.is_integer() else row_shortage:g}"
+                    
+                comp_allocated += row_allocated
+                comp_shortage += row_shortage
+                
+                detail_rows.append({
+                    'Vế': b_side,
+                    'Mã sản phẩm (Product Code)': b_pcode,
+                    'ITEM CODE': comp_code,
+                    'DESCRIPTION (tên mô tả)': b_pdesc,
+                    'Định mức BOM': b_qty,
+                    'Số lượng đơn': order_qty,
+                    'Số lượng cần': row_required,
+                    'Tồn kho khả dụng': row_avail_stock,
+                    'Số lượng cấp': row_allocated,
+                    'Số lượng thiếu': row_shortage,
+                    'Trạng thái': row_status,
+                    'Ghi chú': row_note
+                })
+            
+            # Cập nhật số lượng tồn kho còn lại vào quỹ kho FIFO
+            stock_qty_pool[comp_code] = running_stock
+            
+            # Bảng tổng hợp linh kiện
+            if comp_shortage == 0.0:
+                summary_status = "OK"
+                summary_note = "Đủ hàng"
             else:
-                allocated = max(0.0, curr_stock)
-                shortage = total_required - allocated
-                status = "THIẾU"
-                note = f"Thiếu {int(shortage) if shortage.is_integer() else shortage:g}"
-                stock_qty_pool[comp_code] = 0.0
+                summary_status = "THIẾU"
+                summary_note = f"Thiếu {int(comp_shortage) if comp_shortage.is_integer() else comp_shortage:g}"
                 
             summary_rows.append({
                 'ITEM CODE': comp_code,
@@ -344,11 +402,11 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'SL Cần Trái': req_left,
                 'SL Cần Phải': req_right,
                 'SL BOM cần chạy': total_required,
-                'Số lượng tồn kho': curr_stock,
-                'Số lượng cấp': allocated,
-                'Số lượng thiếu': shortage,
-                'Trạng thái': status,
-                'Ghi chú': note
+                'Số lượng tồn kho': initial_stock,
+                'Số lượng cấp': comp_allocated,
+                'Số lượng thiếu': comp_shortage,
+                'Trạng thái': summary_status,
+                'Ghi chú': summary_note
             })
             
         df_summary = pd.DataFrame(summary_rows)
@@ -359,38 +417,14 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 ascending=[False, False, True]
             ).reset_index(drop=True)
             
-        # Tạo bảng chi tiết theo từng dòng của BOM (Trái & Phải)
-        detail_rows = []
-        summary_map = df_summary.set_index('ITEM CODE').to_dict(orient='index') if len(df_summary) > 0 else {}
-        
-        for _, brow in bom_order.iterrows():
-            ccode = brow['Component_Code']
-            comp_info = summary_map.get(ccode, {
-                'Trạng thái': 'THIẾU',
-                'Ghi chú': f"Thiếu {brow['Qty'] * order_qty:g}",
-                'Số lượng tồn kho': 0.0
-            })
-            
-            row_required = float(brow['Qty'] * order_qty)
-            detail_rows.append({
-                'Vế': brow['Side'],
-                'Mã sản phẩm (Product Code)': brow['Product_Code'],
-                'ITEM CODE': ccode,
-                'DESCRIPTION (tên mô tả)': brow['Component_Desc'],
-                'Định mức BOM': brow['Qty'],
-                'Số lượng đơn': order_qty,
-                'Số lượng cần': row_required,
-                'Tồn kho khả dụng': comp_info.get('Số lượng tồn kho', 0.0),
-                'Trạng thái': comp_info.get('Trạng thái', 'THIẾU'),
-                'Ghi chú': comp_info.get('Ghi chú', 'THIẾU')
-            })
-            
+        # Sắp xếp bảng chi tiết BOM: Vế Phải trước, Vế Trái sau, ưu tiên dòng THIẾU lên đầu
         df_detail = pd.DataFrame(detail_rows)
         if len(df_detail) > 0:
+            df_detail['_side_prio'] = df_detail['Vế'].apply(get_side_priority)
             df_detail = df_detail.sort_values(
-                by=['Vế', 'Trạng thái', 'ITEM CODE'],
+                by=['_side_prio', 'Trạng thái', 'ITEM CODE'],
                 ascending=[True, False, True]
-            ).reset_index(drop=True)
+            ).drop(columns=['_side_prio']).reset_index(drop=True)
             
         total_items = len(df_summary)
         ok_count = int((df_summary['Trạng thái'] == 'OK').sum()) if total_items > 0 else 0
