@@ -638,8 +638,6 @@ st.markdown("""
 
 with st.container():
     sorted_order_keys = sorted(orders_info.keys())
-    ready_orders_dict = {ro['order_no']: ro for ro in readiness_data['ready_orders']}
-    not_ready_orders_dict = {ro['order_no']: ro for ro in readiness_data['not_ready_orders']}
     
     # Gợi ý chọn nhanh các đơn đủ mã đồng bộ sẵn sàng chạy
     st.markdown("**⚡ Gợi ý chọn nhanh các đơn đủ mã đồng bộ (1 Chạm để điền mã & SL tối đa):**")
@@ -647,7 +645,7 @@ with st.container():
     chip_cols = safe_columns(len(quick_sample_orders))
     for c_i, ord_code in enumerate(quick_sample_orders):
         if ord_code in orders_info:
-            ro_m = ready_orders_dict.get(ord_code)
+            ro_m = next((ro for ro in readiness_data['ready_orders'] if ro['order_no'] == ord_code), None)
             chip_label = f"🟢 Đơn {ord_code} ({ro_m['max_runnable_qty']:,} pcs)" if ro_m else f"⚠️ Đơn {ord_code}"
             if chip_cols[c_i].button(chip_label, key=f"quick_{ord_code}", use_container_width=True):
                 st.session_state.quick_selected_order = ord_code
@@ -657,7 +655,7 @@ with st.container():
 
     # Chuẩn bị danh sách đơn hàng hiển thị gọn gàng và trực quan
     def format_order_item(k):
-        ro = ready_orders_dict.get(k)
+        ro = next((x for x in readiness_data['ready_orders'] if x['order_no'] == k), None)
         if ro:
             return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ - Tối đa: {ro['max_runnable_qty']:,} pcs)"
         else:
@@ -695,7 +693,7 @@ with st.container():
         curr_order_id = selected_code
         curr_info = orders_info.get(curr_order_id, {})
         # Kiểm tra xem đơn này có nằm trong danh sách đủ mã không
-        ready_match = ready_orders_dict.get(curr_order_id)
+        ready_match = next((ro for ro in readiness_data['ready_orders'] if ro['order_no'] == curr_order_id), None)
         if ready_match:
             ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
             bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Vướng linh kiện có SL ít nhất: <b>{ready_match['bottleneck_desc']}</b> (Tồn kho còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
@@ -781,7 +779,7 @@ else:
         c[3].markdown(f"**{qty_num:,g}** bộ")
         
         ord_no_str = str(item.get('order_no', '')).strip()
-        ro_match = ready_orders_dict.get(ord_no_str)
+        ro_match = next((x for x in readiness_data['ready_orders'] if str(x.get('order_no', '')).strip() == ord_no_str), None)
         if ro_match:
             max_pcs = float(ro_match.get('max_runnable_qty', 0))
             if qty_num <= max_pcs:
@@ -789,7 +787,7 @@ else:
             else:
                 c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
         else:
-            nr_match = not_ready_orders_dict.get(ord_no_str)
+            nr_match = next((x for x in readiness_data['not_ready_orders'] if str(x.get('order_no', '')).strip() == ord_no_str), None)
             m_count = nr_match.get('missing_count', 'nhiều') if nr_match else 'nhiều'
             c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ THIẾU {m_count} MÃ TRONG KHO</span>", unsafe_allow_html=True)
             
@@ -803,7 +801,7 @@ else:
 
 st.divider()
 
-# ==================== BÁO CÁO TRỰC QUAN NHANH TOÀN BỘ ĐƠN ĐỒNG BỘ ĐỦ MÃ SẴN SÀNG CHẠY ====================
+# ==================== BÁO CÁO TRỰC QUAN NHANH TOÀN BỘ 39 ĐƠN ĐỒNG BỘ ĐỦ MÃ SẴN SÀNG CHẠY ====================
 st.markdown(f"""
 <div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 16px; padding: 22px 28px; color: #FFFFFF; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
@@ -823,14 +821,14 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # KHUNG ĐIỀU KHIỂN: LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC (FIFO)
-st.markdown(f"""
+st.markdown("""
 <div style="background: #FFFFFF; border: 2px solid #059669; border-radius: 14px; padding: 18px 22px; margin-bottom: 18px; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.08);">
     <div style="font-size: 16px; font-weight: 850; color: #064E3B; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
         <span>🎯 LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC VÀO HÀNG CHỜ (FIFO)</span>
         <span style="font-size: 12px; font-weight: 700; color: #059669; background: #ECFDF5; padding: 3px 10px; border-radius: 9999px; border: 1px solid #A7F3D0;">Tùy chọn đa năng</span>
     </div>
     <div style="font-size: 13.5px; color: #475569;">
-        Chọn một hoặc nhiều đơn từ danh sách {readiness_data['ready_count']} đơn đủ mã. Thứ tự bạn chọn trong ô chính là <b>thứ tự ưu tiên trừ tồn kho FIFO</b> trong hàng chờ sản xuất.
+        Chọn một hoặc nhiều đơn từ danh sách 39 đơn đủ mã. Thứ tự bạn chọn trong ô chính là <b>thứ tự ưu tiên trừ tồn kho FIFO</b> trong hàng chờ sản xuất.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -842,7 +840,7 @@ with col_prio_select:
     selected_priority_orders = st.multiselect(
         "1. Chọn các đơn hàng muốn ưu tiên chạy (thứ tự chọn = thứ tự ưu tiên trừ tồn kho FIFO):",
         options=ready_order_choices,
-        format_func=lambda code: f"Đơn {code} - {orders_info.get(code, {}).get('description', '')} (Tối đa: {ready_orders_dict.get(code, {}).get('max_runnable_qty', 0):,} pcs)",
+        format_func=lambda code: f"Đơn {code} - {orders_info.get(code, {}).get('description', '')} (Tối đa: {next((x['max_runnable_qty'] for x in readiness_data['ready_orders'] if x['order_no'] == code), 0):,} pcs)",
         placeholder="Gõ hoặc chọn các đơn cần chạy (Ví dụ: 5151, 8333, 4151, 1009, 5171...)...",
         key="multiselect_prio_orders"
     )
@@ -858,7 +856,7 @@ with col_prio_btn:
 
 if btn_add_prio and selected_priority_orders:
     for code in selected_priority_orders:
-        ro_match = ready_orders_dict.get(code)
+        ro_match = next((x for x in readiness_data['ready_orders'] if x['order_no'] == code), None)
         if ro_match:
             st.session_state.orders_queue.append({
                 'id': f"{code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
@@ -875,7 +873,7 @@ st.markdown("**⚡ Phím tắt thêm nhanh 1 chạm (Tự động nạp SL tối
 sample_quick_codes = ['5151', '5171', '8333', '4151', '1009', '5804']
 chip_quick_cols = safe_columns(len(sample_quick_codes))
 for idx_c, qc in enumerate(sample_quick_codes):
-    ro_c = ready_orders_dict.get(qc)
+    ro_c = next((x for x in readiness_data['ready_orders'] if x['order_no'] == qc), None)
     if ro_c:
         with chip_quick_cols[idx_c]:
             if st.button(f"➕ {qc} ({ro_c['max_runnable_qty']:,} pcs)", key=f"fast_chip_{qc}", use_container_width=True, help=f"Thêm ngay đơn {qc} ({ro_c['max_runnable_qty']:,} pcs) vào hàng chờ"):
@@ -890,13 +888,13 @@ for idx_c, qc in enumerate(sample_quick_codes):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Nút tải Excel báo cáo các đơn sẵn sàng & đơn thiếu linh kiện
+# Nút tải Excel báo cáo 39 đơn sẵn sàng & 26 đơn thiếu linh kiện
 col_dl_ready_btn, col_dl_note = safe_columns([5, 5], vertical_alignment="center")
 with col_dl_ready_btn:
     readiness_key = (readiness_data['ready_count'], readiness_data['not_ready_count'], readiness_data['total_orders'])
     readiness_excel = get_cached_readiness_excel(readiness_key, readiness_data)
     st.download_button(
-        label=f"📥 Tải Excel Báo Cáo {readiness_data['ready_count']} Đơn Sẵn Sàng (Kèm Đơn Thiếu Mã)",
+        label="📥 Tải Excel Báo Cáo 39 Đơn Sẵn Sàng (Kèm Đơn Thiếu Mã)",
         data=readiness_excel,
         file_name=f"Bao_Cao_Don_Du_Ma_San_Sang_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -904,21 +902,21 @@ with col_dl_ready_btn:
         use_container_width=True
     )
 with col_dl_note:
-    st.caption(f"✨ Tải toàn bộ danh sách {readiness_data['ready_count']} đơn đủ mã và {readiness_data['not_ready_count']} đơn thiếu linh kiện về máy (File Excel gồm 2 Sheet phân loại chi tiết).")
+    st.caption("✨ Tải toàn bộ danh sách 39 đơn đủ mã và 26 đơn thiếu linh kiện về máy (File Excel gồm 2 Sheet phân loại chi tiết).")
 
 # ==================== ẨN TRIỆT ĐỂ 2 BẢNG CHI TIẾT (MẶC ĐỊNH ĐÓNG, KHÔNG MỞ LẠI KHI KHÔNG CÓ YÊU CẦU) ====================
-with st.expander(f"📋 Tra Cứu Chi Tiết Bảng {readiness_data['ready_count']} Đơn Đủ Mã & Danh Sách Đơn Chưa Đủ Mã (Mặc định ẩn - Chỉ mở khi có yêu cầu tra cứu)", expanded=False):
+with st.expander("📋 Tra Cứu Chi Tiết Bảng 39 Đơn Đủ Mã & Danh Sách Đơn Chưa Đủ Mã (Mặc định ẩn - Chỉ mở khi có yêu cầu tra cứu)", expanded=False):
     col_search, col_sort = safe_columns([7, 3], vertical_alignment="bottom")
     with col_search:
         search_ready = st.text_input(
-            f"🔍 Tìm kiếm nhanh trong {readiness_data['ready_count']} đơn (gõ 5151, 8333, tên SP...):",
+            "🔍 Tìm kiếm nhanh trong 39 đơn (gõ 5151, 8333, tên SP...):",
             value="",
             placeholder="Gõ mã đơn hoặc tên sản phẩm...",
             key="search_ready_input"
         )
     with col_sort:
         sort_option = st.selectbox(
-            f"📊 Sắp xếp danh sách {readiness_data['ready_count']} đơn:",
+            "📊 Sắp xếp danh sách 39 đơn:",
             options=[
                 "🔥 SL tối đa chạy được (Cao ➜ Thấp)",
                 "🔢 SL tối đa chạy được (Thấp ➜ Cao)",
@@ -929,7 +927,7 @@ with st.expander(f"📋 Tra Cứu Chi Tiết Bảng {readiness_data['ready_count
             key="sort_ready_orders_key"
         )
 
-    # Lọc và sắp xếp danh sách đơn đủ mã
+    # Lọc và sắp xếp danh sách 39 đơn
     filtered_ready = [
         ro for ro in readiness_data['ready_orders']
         if search_ready.strip().lower() in ro['order_no'].lower() or search_ready.strip().lower() in ro['description'].lower()
