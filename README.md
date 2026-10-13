@@ -61,6 +61,5 @@ streamlit run app.py
 ├── .streamlit/
 │   └── config.toml                    # Cấu hình giao diện Streamlit
 ├── Production BOM List 10.2.xlsx      # File mẫu dữ liệu BOM
-├── Stock 61.xlsx                      # File mẫu tồn kho Kho 61 (Mặc định)
-└── Stock Balance With Batch (3).xlsx  # File mẫu tồn kho Stock Balance
+└── Stock 61.xlsx                      # File mẫu tồn kho Kho 61 (Mặc định)
 ```
