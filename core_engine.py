@@ -11,6 +11,7 @@ Xử lý logic đối soát BOM (Production BOM List) và Tồn kho (Stock 61 / 
 
 import io
 import re
+import uuid
 import pandas as pd
 import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
@@ -38,6 +39,137 @@ def clean_order_title(desc, order_no=""):
     if not cleaned or cleaned.isdigit():
         return f"Sản phẩm {order_no}"
     return cleaned
+
+
+def parse_product_code(code):
+    """
+    Phân tích mã sản phẩm / Model:
+    - Bắt đầu bằng 1: 4 số đầu là đơn hàng, 2 số tiếp theo là vế (19: Trái, 20: Phải)
+    - Bắt đầu bằng 8: bỏ 8, 4 số tiếp theo là đơn hàng, số tiếp theo là vế (1: Trái, 2: Phải)
+    """
+    code_str = str(code).strip()
+    if code_str.startswith('1'):
+        order = code_str[:4]
+        side_raw = code_str[4:6]
+        side = 'Trái' if side_raw == '19' else ('Phải' if side_raw == '20' else f'Vế {side_raw}')
+        variant = code_str[6:]
+        return order, side, variant
+    elif code_str.startswith('8'):
+        order = code_str[1:5]
+        side_raw = code_str[5] if len(code_str) > 5 else ''
+        side = 'Trái' if side_raw == '1' else ('Phải' if side_raw == '2' else f'Vế {side_raw}')
+        variant = code_str[6:] if len(code_str) > 6 else ''
+        return order, side, variant
+    else:
+        return code_str[:4], 'Khác', code_str[4:]
+
+
+def find_plan_header_row_from_df(df_raw, max_rows=20):
+    """
+    Tìm chỉ số dòng chứa tiêu đề file kế hoạch (MODEL và Qty).
+    """
+    model_kws = ['model', 'product code', 'product_code', 'mã sp', 'mã hàng', 'mã model', 'mã']
+    qty_kws = ['qty', 'quantity', 'số lượng', 'sl']
+    for i in range(min(max_rows, len(df_raw))):
+        row_str = ' '.join([str(x).lower().strip() for x in df_raw.iloc[i].values if pd.notna(x)])
+        if any(k in row_str for k in model_kws) and any(k in row_str for k in qty_kws):
+            return i
+    return 0
+
+
+def load_plan_data(file_source):
+    """
+    Đọc file Kế hoạch sản xuất (.xlsx):
+    - Lấy dữ liệu 2 cột MODEL và Qty (và Due date nếu có).
+    - Giải mã cột MODEL ra Mã đơn hàng (Order_No), Vế (Trái/Phải) và Phiên bản (Variant).
+    """
+    df_raw = pd.read_excel(file_source, header=None, nrows=20)
+    h_idx = find_plan_header_row_from_df(df_raw)
+    if hasattr(file_source, 'seek'):
+        file_source.seek(0)
+    df = pd.read_excel(file_source, skiprows=h_idx)
+    
+    col_map = {}
+    for c in df.columns:
+        c_clean = str(c).strip().lower()
+        if any(k in c_clean for k in ['model', 'product code', 'product_code', 'mã sp', 'mã hàng', 'mã model']):
+            if 'MODEL' not in col_map.values():
+                col_map[c] = 'MODEL'
+        elif any(k in c_clean for k in ['qty', 'quantity', 'số lượng', 'sl']):
+            if 'Qty' not in col_map.values():
+                col_map[c] = 'Qty'
+        elif any(k in c_clean for k in ['due date', 'due_date', 'ngày', 'hạn', 'date']):
+            if 'Due_Date' not in col_map.values():
+                col_map[c] = 'Due_Date'
+                
+    df = df.rename(columns=col_map)
+    if 'MODEL' not in df.columns or 'Qty' not in df.columns:
+        raise ValueError('Không tìm thấy cột MODEL hoặc Qty trong file Kế hoạch.')
+        
+    df = df[pd.notna(df['MODEL']) & pd.notna(df['Qty'])].copy()
+    df['MODEL'] = df['MODEL'].astype(str).str.strip()
+    df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
+    df = df[df['Qty'] > 0].copy()
+    
+    parsed = [parse_product_code(m) for m in df['MODEL']]
+    df['Order_No'] = [p[0] for p in parsed]
+    df['Side'] = [p[1] for p in parsed]
+    df['Variant'] = [p[2] for p in parsed]
+    
+    if 'Due_Date' in df.columns:
+        df['Due_Date'] = df['Due_Date'].astype(str).str.slice(0, 10)
+    else:
+        df['Due_Date'] = ''
+        
+    return df
+
+
+def extract_orders_from_plan(df_plan):
+    """
+    Chuyển đổi dữ liệu từ File Kế hoạch thành danh sách hàng chờ đối soát FIFO.
+    Giữ nguyên thứ tự ưu tiên từ trên xuống dưới của File Kế hoạch.
+    Mỗi đơn hàng tự động ghép vế Trái và Phải từ các dòng Model tương ứng.
+    """
+    orders_queue = []
+    seen = {}
+    
+    for idx, row in df_plan.iterrows():
+        ord_no = str(row['Order_No']).strip()
+        side = str(row['Side']).strip()
+        qty = float(row['Qty'])
+        variant = str(row['Variant']).strip() if pd.notna(row['Variant']) else ''
+        model = str(row['MODEL']).strip()
+        due_date = str(row.get('Due_Date', '')).strip()
+        
+        if ord_no not in seen:
+            item = {
+                'id': f'plan_{ord_no}_{len(orders_queue)+1}_{uuid.uuid4().hex[:6]}',
+                'order_no': ord_no,
+                'qty': qty,
+                'qty_left': qty if side == 'Trái' else 0.0,
+                'qty_right': qty if side == 'Phải' else 0.0,
+                'variant': variant,
+                'due_date': due_date,
+                'models': {side: model},
+                'source': 'Kế hoạch',
+                'created_at': due_date if due_date else 'Kế hoạch'
+            }
+            seen[ord_no] = item
+            orders_queue.append(item)
+        else:
+            item = seen[ord_no]
+            if side == 'Trái':
+                item['qty_left'] = qty
+            elif side == 'Phải':
+                item['qty_right'] = qty
+            item['models'][side] = model
+            item['qty'] = max(item['qty_left'], item['qty_right'])
+            if variant and not item.get('variant'):
+                item['variant'] = variant
+            if due_date and not item.get('due_date'):
+                item['due_date'] = due_date
+                
+    return orders_queue
 
 
 def find_header_row_from_df(df_raw, keywords, max_rows=20):
@@ -96,27 +228,6 @@ def load_bom_data(file_source):
     else:
         df['Component_Desc'] = df['Component_Desc'].fillna('').astype(str).str.strip()
         
-    def parse_product_code(code):
-        """
-        - Bắt đầu bằng 1: 4 số đầu là đơn hàng, 2 số tiếp theo là vế (19: Trái, 20: Phải)
-        - Bắt đầu bằng 8: bỏ 8, 4 số tiếp theo là đơn hàng, số tiếp theo là vế (1: Trái, 2: Phải)
-        """
-        code_str = str(code).strip()
-        if code_str.startswith('1'):
-            order = code_str[:4]
-            side_raw = code_str[4:6]
-            side = 'Trái' if side_raw == '19' else ('Phải' if side_raw == '20' else f'Vế {side_raw}')
-            variant = code_str[6:]
-            return order, side, variant
-        elif code_str.startswith('8'):
-            order = code_str[1:5]
-            side_raw = code_str[5] if len(code_str) > 5 else ''
-            side = 'Trái' if side_raw == '1' else ('Phải' if side_raw == '2' else f'Vế {side_raw}')
-            variant = code_str[6:] if len(code_str) > 6 else ''
-            return order, side, variant
-        else:
-            return code_str[:4], 'Khác', code_str[4:]
-
     parsed = [parse_product_code(c) for c in df['Product_Code']]
     df['Order_No'] = [p[0] for p in parsed]
     df['Side'] = [p[1] for p in parsed]
@@ -251,9 +362,13 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
     for idx, item in enumerate(orders_queue, 1):
         order_no = str(item['order_no']).strip()
         order_qty = float(item['qty'])
+        qty_left = float(item.get('qty_left', order_qty))
+        qty_right = float(item.get('qty_right', order_qty))
         variant = item.get('variant', None)
         item_id = item.get('id', f"ord_{idx}")
         created_at = item.get('created_at', '')
+        models_map = item.get('models', {})
+        due_date = item.get('due_date', '')
         
         # Lọc dữ liệu BOM cho đơn hàng này
         order_boms = df_bom[df_bom['Order_No'] == order_no]
@@ -264,6 +379,10 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'stt': idx,
                 'order_no': order_no,
                 'order_qty': order_qty,
+                'qty_left': qty_left,
+                'qty_right': qty_right,
+                'models': models_map,
+                'due_date': due_date,
                 'created_at': created_at,
                 'error': f"Không tìm thấy dữ liệu BOM cho đơn hàng {order_no}",
                 'total_items': 0,
@@ -295,9 +414,9 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
 
         def get_side_priority(side):
             s = str(side).strip().lower()
-            if any(k in s for k in ['phải', 'phai', 'right', 'rh']):
+            if any(k in s for k in ['trái', 'trai', 'left', 'lh']):
                 return 0
-            elif any(k in s for k in ['trái', 'trai', 'left', 'lh']):
+            elif any(k in s for k in ['phải', 'phai', 'right', 'rh']):
                 return 1
             return 2
         
@@ -320,9 +439,9 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             total_bom_unit = left_bom_qty + right_bom_qty + other_bom_qty
             
             # Nhân định mức Trái và Phải với số lượng đơn hàng cần chạy
-            req_left = left_bom_qty * order_qty
-            req_right = right_bom_qty * order_qty
-            req_other = other_bom_qty * order_qty
+            req_left = left_bom_qty * qty_left
+            req_right = right_bom_qty * qty_right
+            req_other = other_bom_qty * max(qty_left, qty_right)
             
             # Tổng số lượng BOM cần chạy cho nguyên đơn (Trái + Phải)
             total_required = req_left + req_right + req_other
@@ -331,7 +450,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             initial_stock = float(stock_qty_pool.get(comp_code, 0.0))
             running_stock = initial_stock
             
-            # Sắp xếp các dòng BOM của linh kiện theo thứ tự trừ dần: Phải (0) -> Trái (1) -> Khác (2)
+            # Sắp xếp các dòng BOM của linh kiện theo thứ tự trừ dần: Trái (0) -> Phải (1) -> Khác (2)
             cgroup_sorted = cgroup.copy()
             cgroup_sorted['_prio'] = cgroup_sorted['Side'].apply(get_side_priority)
             cgroup_sorted = cgroup_sorted.sort_values(by=['_prio', 'Product_Code']).drop(columns=['_prio'])
@@ -344,13 +463,22 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 b_pcode = brow['Product_Code']
                 b_pdesc = brow['Component_Desc']
                 b_qty = float(brow['Qty'])
-                row_required = b_qty * order_qty  # Phần BOM hàng cần của dòng này
+                
+                # Số lượng đơn theo từng vế
+                if b_side == 'Trái':
+                    side_order_qty = qty_left
+                elif b_side == 'Phải':
+                    side_order_qty = qty_right
+                else:
+                    side_order_qty = max(qty_left, qty_right)
+                    
+                row_required = b_qty * side_order_qty  # Phần BOM hàng cần của dòng này
                 
                 # Tồn kho khả dụng của dòng này trước khi trừ
                 row_avail_stock = max(0.0, running_stock)
                 
                 # Công thức tính trừ dần:
-                # Trừ vế phải trước, số còn lại trừ tiếp cho vế trái, chỉ báo thiếu số lượng cho mã thiếu cuối cùng
+                # Trừ vế trái trước, số còn lại trừ tiếp cho vế phải, chỉ báo thiếu số lượng cho mã thiếu cuối cùng
                 if running_stock >= row_required:
                     row_allocated = row_required
                     row_shortage = 0.0
@@ -373,7 +501,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                     'ITEM CODE': comp_code,
                     'DESCRIPTION (tên mô tả)': b_pdesc,
                     'Định mức BOM': b_qty,
-                    'Số lượng đơn': order_qty,
+                    'Số lượng đơn': side_order_qty,
                     'Số lượng cần': row_required,
                     'Tồn kho khả dụng': row_avail_stock,
                     'Số lượng cấp': row_allocated,
@@ -417,7 +545,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 ascending=[False, False, True]
             ).reset_index(drop=True)
             
-        # Sắp xếp bảng chi tiết BOM: Vế Phải trước, Vế Trái sau, ưu tiên dòng THIẾU lên đầu
+        # Sắp xếp bảng chi tiết BOM: Vế Trái trước, Vế Phải sau, ưu tiên dòng THIẾU lên đầu
         df_detail = pd.DataFrame(detail_rows)
         if len(df_detail) > 0:
             df_detail['_side_prio'] = df_detail['Vế'].apply(get_side_priority)
@@ -435,6 +563,10 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             'stt': idx,
             'order_no': order_no,
             'order_qty': order_qty,
+            'qty_left': qty_left,
+            'qty_right': qty_right,
+            'models': models_map,
+            'due_date': due_date,
             'product_title': product_title,
             'variant': chosen_variant,
             'created_at': created_at,
@@ -655,6 +787,77 @@ def export_all_orders_to_excel(all_results):
         max_len = max([len(str(cell.value or '')) for cell in col])
         col_letter = get_column_letter(col[0].column)
         ws_idx.column_dimensions[col_letter].width = max(max_len + 4, 12)
+        
+    # Sheet 2: Chi tiết tất cả các đơn hàng (Trái trước, Phải sau)
+    ws_all_det = wb.create_sheet(title="Chi_Tiet_BOM_Tat_Ca_Don")
+    ws_all_det.cell(row=1, column=1, value="CHI TIẾT TỔNG HỢP BOM TRÁI & PHẢI TẤT CẢ CÁC ĐƠN HÀNG (FIFO)").font = font_title
+    ws_all_det.cell(row=2, column=1, value="Cơ chế FIFO: Ưu tiên đơn hàng trên trước, trừ dần vế Trái trước - vế Phải sau").font = Font(name="Segoe UI", size=10, italic=True, color="4B5563")
+    
+    headers_all_det = [
+        "STT Đơn", "Mã đơn hàng", "Vế", "Mã sản phẩm (Product Code)",
+        "ITEM CODE", "DESCRIPTION (tên mô tả)", "Định mức BOM",
+        "Số lượng đơn", "Số lượng cần", "Tồn kho khả dụng", "Số lượng cấp",
+        "Số lượng thiếu", "Trạng thái", "Ghi chú"
+    ]
+    
+    start_all_det_r = 4
+    for c_i, h in enumerate(headers_all_det, 1):
+        c = ws_all_det.cell(row=start_all_det_r, column=c_i, value=h)
+        c.font = font_header
+        c.fill = fill_header
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = border_thin
+    ws_all_det.row_dimensions[start_all_det_r].height = 28
+    
+    curr_det_row = start_all_det_r
+    for r in all_results:
+        df_det = r.get('detail_table', pd.DataFrame())
+        if len(df_det) == 0:
+            continue
+        for _, row_item in df_det.iterrows():
+            curr_det_row += 1
+            is_ok = (row_item['Trạng thái'] == 'OK')
+            row_fill = fill_ok if is_ok else fill_missing
+            row_font = font_ok if is_ok else font_missing
+            
+            row_vals = [
+                r['stt'],
+                r['order_no'],
+                row_item['Vế'],
+                row_item['Mã sản phẩm (Product Code)'],
+                row_item['ITEM CODE'],
+                row_item['DESCRIPTION (tên mô tả)'],
+                row_item['Định mức BOM'],
+                row_item['Số lượng đơn'],
+                row_item['Số lượng cần'],
+                row_item['Tồn kho khả dụng'],
+                row_item['Số lượng cấp'],
+                row_item['Số lượng thiếu'],
+                row_item['Trạng thái'],
+                row_item['Ghi chú']
+            ]
+            
+            for c_i, val in enumerate(row_vals, 1):
+                c = ws_all_det.cell(row=curr_det_row, column=c_i, value=val)
+                c.fill = row_fill
+                c.font = row_font
+                c.border = border_thin
+                if isinstance(val, (int, float)):
+                    c.alignment = Alignment(horizontal="right", vertical="center")
+                    c.number_format = "#,##0.##"
+                else:
+                    c.alignment = Alignment(horizontal="left", vertical="center")
+            ws_all_det.row_dimensions[curr_det_row].height = 20
+            
+    for col in ws_all_det.columns:
+        max_len = 0
+        col_letter = get_column_letter(col[0].column)
+        for cell in col:
+            if cell.row < start_all_det_r:
+                continue
+            if cell.value is not None:
+                max_len = max(max_len, len(str(cell.value)))
+        ws_all_det.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
         
     # Tạo các sheet con cho từng đơn
     for r in all_results:

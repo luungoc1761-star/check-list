@@ -389,6 +389,7 @@ DATA_PERSIST_DIR = os.path.join(APP_DIR, ".persistent_data")
 os.makedirs(DATA_PERSIST_DIR, exist_ok=True)
 STOCK_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_stock.xlsx")
 BOM_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_bom.xlsx")
+PLAN_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_plan.xlsx")
 META_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "metadata.json")
 QUEUE_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "orders_queue.json")
 
@@ -401,10 +402,12 @@ def load_meta():
             pass
     return {}
 
-def save_meta(meta_dict):
+def save_meta(update_dict):
     try:
+        curr = load_meta()
+        curr.update(update_dict)
         with open(META_PERSIST_FILE, 'w', encoding='utf-8') as f:
-            json.dump(meta_dict, f, ensure_ascii=False, indent=2)
+            json.dump(curr, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -454,6 +457,18 @@ if 'custom_stock_bytes' not in st.session_state:
     else:
         st.session_state.custom_stock_bytes = None
         st.session_state.custom_stock_name = None
+if 'custom_plan_bytes' not in st.session_state:
+    if os.path.exists(PLAN_PERSIST_FILE):
+        try:
+            with open(PLAN_PERSIST_FILE, 'rb') as f:
+                st.session_state.custom_plan_bytes = f.read()
+            st.session_state.custom_plan_name = meta.get('plan_name', os.path.basename(PLAN_PERSIST_FILE))
+        except Exception:
+            st.session_state.custom_plan_bytes = None
+            st.session_state.custom_plan_name = None
+    else:
+        st.session_state.custom_plan_bytes = None
+        st.session_state.custom_plan_name = None
 if 'quick_selected_order' not in st.session_state:
     st.session_state.quick_selected_order = "8393"
 if 'quick_selected_qty' not in st.session_state:
@@ -519,6 +534,25 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
         return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu Excel: {str(e)}"
 
 @st.cache_data
+def get_loaded_plan_data(plan_bytes, plan_name):
+    if plan_bytes:
+        plan_source = io.BytesIO(plan_bytes)
+    else:
+        plan_source = (
+            find_data_file(['kế hoạch'])
+            or find_data_file(['ke hoach'])
+            or find_data_file(['plan'])
+        )
+    if plan_source is None:
+        return None, None
+    try:
+        df_plan = core_engine.load_plan_data(plan_source)
+        source_name = plan_name if plan_bytes else os.path.basename(plan_source)
+        return df_plan, source_name
+    except Exception:
+        return None, None
+
+@st.cache_data
 def get_cached_readiness_excel(cache_key, _readiness_data):
     return core_engine.export_readiness_report_to_excel(_readiness_data)
 
@@ -533,7 +567,7 @@ def get_cached_all_excel(cache_key, _calculation_results):
 # ==================== SIDEBAR QUẢN LÝ DỮ LIỆU (LUÔN HIỂN THỊ) ====================
 with st.sidebar:
     st.markdown("### ⚙️ Dữ Liệu Nguồn")
-    st.caption("Quản lý file Tồn kho và Định mức BOM sản xuất.")
+    st.caption("Quản lý file Tồn kho, Định mức BOM và Kế hoạch sản xuất.")
     
     # Nút upload Tồn kho
     st.markdown("#### 1. File Tồn kho (Stock 61 / Stock Balance)")
@@ -551,8 +585,7 @@ with st.sidebar:
             try:
                 with open(STOCK_PERSIST_FILE, 'wb') as f:
                     f.write(stock_bytes_val)
-                meta['stock_name'] = uploaded_stock.name
-                save_meta(meta)
+                save_meta({'stock_name': uploaded_stock.name})
             except Exception:
                 pass
             st.cache_data.clear()
@@ -576,8 +609,31 @@ with st.sidebar:
             try:
                 with open(BOM_PERSIST_FILE, 'wb') as f:
                     f.write(bom_bytes_val)
-                meta['bom_name'] = uploaded_bom.name
-                save_meta(meta)
+                save_meta({'bom_name': uploaded_bom.name})
+            except Exception:
+                pass
+            st.cache_data.clear()
+            st.rerun()
+
+    st.divider()
+
+    # Nút upload Kế hoạch sản xuất
+    st.markdown("#### 3. File Kế hoạch sản xuất (Kế hoạch.xlsx)")
+    uploaded_plan = st.file_uploader(
+        "Tải lên file Kế hoạch mới",
+        type=["xlsx", "xls"],
+        key="uploader_plan",
+        help="Cột quan trọng: MODEL và Qty (và Due date nếu có)"
+    )
+    if uploaded_plan is not None:
+        plan_bytes_val = uploaded_plan.getvalue()
+        if (st.session_state.custom_plan_bytes != plan_bytes_val) or (st.session_state.custom_plan_name != uploaded_plan.name):
+            st.session_state.custom_plan_bytes = plan_bytes_val
+            st.session_state.custom_plan_name = uploaded_plan.name
+            try:
+                with open(PLAN_PERSIST_FILE, 'wb') as f:
+                    f.write(plan_bytes_val)
+                save_meta({'plan_name': uploaded_plan.name})
             except Exception:
                 pass
             st.cache_data.clear()
@@ -588,6 +644,8 @@ active_stock_bytes = st.session_state.custom_stock_bytes
 active_stock_name = st.session_state.custom_stock_name
 active_bom_bytes = st.session_state.custom_bom_bytes
 active_bom_name = st.session_state.custom_bom_name
+active_plan_bytes = st.session_state.custom_plan_bytes
+active_plan_name = st.session_state.custom_plan_name
 
 # Tải dữ liệu
 df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
@@ -595,6 +653,11 @@ df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
     active_bom_name,
     active_stock_bytes,
     active_stock_name
+)
+
+df_plan, plan_file_display_name = get_loaded_plan_data(
+    active_plan_bytes,
+    active_plan_name
 )
 
 # Hiển thị thông tin file nạp và điều khiển trên sidebar
@@ -620,15 +683,24 @@ with st.sidebar:
     else:
         st.caption(f"📁 **{current_bom_name}** (Chưa nạp được dữ liệu)")
         
+    current_plan_name = active_plan_name or plan_file_display_name or "Kế hoạch.xlsx (Mặc định)"
+    if df_plan is not None:
+        plan_orders_temp = core_engine.extract_orders_from_plan(df_plan)
+        st.caption(f"📁 **{current_plan_name}** ({len(df_plan):,} dòng, {len(plan_orders_temp):,} đơn)")
+    else:
+        st.caption(f"📁 **{current_plan_name}** (Chưa có file kế hoạch)")
+
     st.divider()
     
     # Nút reset về file gốc
-    if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE):
-        if st.button("🔄 Khôi phục 2 file mẫu mặc định", use_container_width=True):
+    if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
+        if st.button("🔄 Khôi phục dữ liệu mẫu mặc định", use_container_width=True):
             st.session_state.custom_bom_bytes = None
             st.session_state.custom_bom_name = None
             st.session_state.custom_stock_bytes = None
             st.session_state.custom_stock_name = None
+            st.session_state.custom_plan_bytes = None
+            st.session_state.custom_plan_name = None
             st.session_state.orders_queue = []
             if os.path.exists(STOCK_PERSIST_FILE):
                 try: os.remove(STOCK_PERSIST_FILE)
@@ -636,20 +708,23 @@ with st.sidebar:
             if os.path.exists(BOM_PERSIST_FILE):
                 try: os.remove(BOM_PERSIST_FILE)
                 except Exception: pass
+            if os.path.exists(PLAN_PERSIST_FILE):
+                try: os.remove(PLAN_PERSIST_FILE)
+                except Exception: pass
             if os.path.exists(META_PERSIST_FILE):
                 try: os.remove(META_PERSIST_FILE)
                 except Exception: pass
             save_persisted_queue([])
             st.cache_data.clear()
-            st.success("Đã khôi phục dữ liệu mẫu!")
+            st.success("Đã khôi phục dữ liệu mẫu mặc định!")
             st.rerun()
             
     st.markdown("---")
     st.markdown("#### 💡 Cơ chế tính toán:")
     st.markdown("""
-    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động lấy đủ cả 2 vế **Trái và Phải**.
-    - **Định mức nhân số lượng**: Hệ thống nhân riêng `ĐM Trái × SL` và `ĐM Phải × SL` rồi cộng lại thành tổng BOM cần chạy.
-    - **Phân bổ FIFO**: Đơn nhập trước được ưu tiên trừ tồn kho trước.
+    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động ghép đủ 2 vế **Trái và Phải** từ Model trong Kế hoạch hoặc BOM.
+    - **Định mức nhân số lượng**: Hệ thống nhân riêng `ĐM Trái × SL Trái` và `ĐM Phải × SL Phải` rồi cộng lại thành tổng BOM cần chạy.
+    - **Phân bổ FIFO Trái trước - Phải sau**: Ưu tiên trừ dần tồn kho từ trên xuống dưới; trong từng đơn hàng trừ vế Trái trước, số tồn kho còn lại tiếp tục trừ cho vế Phải sau và báo thiếu ở vế thiếu cuối cùng.
     """)
 
 # ==================== MAIN BANNER (LUÔN HIỂN THỊ) ====================
@@ -683,7 +758,8 @@ if df_bom is None or df_stock is None:
 calculation_results = []
 actual_ok_orders = 0
 actual_missing_orders = 0
-if len(st.session_state.orders_queue) > 0:
+queue_len = len(st.session_state.orders_queue)
+if queue_len > 0:
     calculation_results = core_engine.calculate_inventory_allocation(
         st.session_state.orders_queue,
         df_bom,
@@ -905,14 +981,20 @@ else:
         c = safe_columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
         c[0].markdown(f"**#{idx + 1}**")
         c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
-        c[2].write(item['description'])
+        item_desc = item.get('description') or orders_info.get(item['order_no'], {}).get('description', f"Sản phẩm đơn {item['order_no']}")
+        c[2].write(item_desc)
         
         raw_qty = item.get('qty', 0)
         try:
             qty_num = float(raw_qty)
         except (ValueError, TypeError):
             qty_num = 0.0
-        c[3].markdown(f"**{qty_num:,g}** bộ")
+        qty_left_val = float(item.get('qty_left', qty_num))
+        qty_right_val = float(item.get('qty_right', qty_num))
+        if qty_left_val == qty_right_val:
+            c[3].markdown(f"**{qty_num:,g}** bộ")
+        else:
+            c[3].markdown(f"T: **{qty_left_val:,g}** | P: **{qty_right_val:,g}**")
         
         # Lấy kết quả thực tế từ đối soát FIFO đã tính toán
         if idx < len(calculation_results):
@@ -925,7 +1007,8 @@ else:
         else:
             c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⏳ Đang đối soát...</span>", unsafe_allow_html=True)
             
-        c[5].write(item.get('created_at', ''))
+        time_or_due = item.get('due_date') or item.get('created_at', '')
+        c[5].write(time_or_due)
         if c[6].button("❌", key=f"del_{item['id']}"):
             to_delete_idx = idx
             
@@ -968,6 +1051,52 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+# ==================== ĐỐI SOÁT THEO FILE KẾ HOẠCH SẢN XUẤT (FIFO) ====================
+if df_plan is not None and len(df_plan) > 0:
+    plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
+    current_plan_name_display = active_plan_name or plan_file_display_name or "Kế hoạch.xlsx"
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%); border-radius: 14px; padding: 18px 22px; color: #FFFFFF; margin-bottom: 16px; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.2);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <div style="font-size: 17px; font-weight: 850; display: flex; align-items: center; gap: 8px;">
+                    <span>📅 ĐỐI SOÁT THEO FILE KẾ HOẠCH SẢN XUẤT ({current_plan_name_display})</span>
+                </div>
+                <div style="font-size: 13.5px; opacity: 0.95; margin-top: 4px;">
+                    Tổng hợp <b>{len(df_plan)} dòng Model</b> (Trái & Phải) tương ứng <b>{len(plan_orders_extracted)} đơn hàng sản xuất</b> | Tự động phân bổ FIFO từ trên xuống dưới, <b>Trái trước - Phải sau</b>.
+                </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.22); padding: 5px 14px; border-radius: 9999px; font-weight: 800; font-size: 13px; border: 1px solid rgba(255,255,255,0.35);">
+                ✨ {len(plan_orders_extracted)} Đơn Trong Kế Hoạch
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col_plan_load, col_plan_view = safe_columns([6, 4], vertical_alignment="center")
+    with col_plan_load:
+        if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", use_container_width=True, key="btn_load_all_plan", help="Nạp toàn bộ đơn hàng từ File Kế hoạch vào hàng chờ theo đúng thứ tự ưu tiên từ trên xuống dưới."):
+            st.session_state.orders_queue = plan_orders_extracted
+            save_persisted_queue(st.session_state.orders_queue)
+            st.success(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch vào hàng chờ FIFO!")
+            st.rerun()
+    with col_plan_view:
+        with st.popover("📋 Xem trước bảng Model trong File Kế hoạch", use_container_width=True):
+            st.markdown(f"**Danh sách {len(df_plan)} dòng Model trong file {current_plan_name_display}:**")
+            st.dataframe(
+                df_plan[['MODEL', 'Side', 'Order_No', 'Qty', 'Variant', 'Due_Date']].rename(columns={
+                    'MODEL': 'Mã Model',
+                    'Side': 'Vế',
+                    'Order_No': 'Mã đơn',
+                    'Qty': 'Số lượng',
+                    'Variant': 'Phiên bản',
+                    'Due_Date': 'Ngày giao'
+                }),
+                use_container_width=True,
+                height=300
+            )
+    st.markdown("<div style='margin-bottom: 14px;'></div>", unsafe_allow_html=True)
 
 # KHUNG ĐIỀU KHIỂN: LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC (FIFO)
 st.markdown(f"""
@@ -1238,6 +1367,14 @@ if len(st.session_state.orders_queue) > 0 and calculation_results:
         status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} ITEM CODE</span>"
         card_class = "order-card-ok" if is_fully_ok else "order-card-missing"
         
+        qty_left_val = float(r.get('qty_left', order_qty))
+        qty_right_val = float(r.get('qty_right', order_qty))
+        if qty_left_val == qty_right_val:
+            qty_str = f"<b>{order_qty:,g} bộ</b> (Trái + Phải)"
+        else:
+            qty_str = f"Trái: <b>{qty_left_val:,g}</b> | Phải: <b>{qty_right_val:,g}</b>"
+        due_str = f" | Hạn giao: <b>{r.get('due_date')}</b>" if r.get('due_date') else ""
+        
         # Thẻ thông tin lớn, rõ ràng cho từng đơn hàng
         st.markdown(f"""
         <div class="order-card {card_class}">
@@ -1246,7 +1383,7 @@ if len(st.session_state.orders_queue) > 0 and calculation_results:
                     <span style="font-size: 18px; font-weight: 800; color: #1E3A8A;">Ưu tiên #{stt} - Đơn hàng {order_no}</span>
                     <span style="font-size: 15px; color: #475569; margin-left: 8px;">({r.get('product_title', '')})</span>
                     <div style="margin-top: 4px; font-size: 14px; color: #64748B;">
-                        Số lượng đặt: <b>{order_qty:,g} bộ</b> (Trái + Phải) | Trạng thái: {status_badge}
+                        Số lượng đặt: {qty_str}{due_str} | Trạng thái: {status_badge}
                     </div>
                 </div>
             </div>
