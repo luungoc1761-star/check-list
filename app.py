@@ -6,6 +6,8 @@ import uuid
 import streamlit as st
 import pandas as pd
 import core_engine
+import auth_manager
+import storage_manager
 
 
 def safe_columns(spec, vertical_alignment=None, **kwargs):
@@ -39,7 +41,7 @@ st.markdown("""
     /* Giao diện tràn viền rộng rãi, thoáng đãng */
     .block-container {
         max-width: 98% !important;
-        padding-top: 1.2rem !important;
+        padding-top: 1.0rem !important;
         padding-bottom: 2.5rem !important;
         padding-left: 2rem !important;
         padding-right: 2rem !important;
@@ -63,10 +65,10 @@ st.markdown("""
     .hero-banner {
         background: linear-gradient(135deg, #0F172A 0%, #1E3A8A 50%, #2563EB 100%);
         border-radius: 18px;
-        padding: 26px 34px;
+        padding: 22px 30px;
         color: #FFFFFF;
         box-shadow: 0 12px 30px -5px rgba(30, 58, 138, 0.3), 0 8px 12px -6px rgba(30, 58, 138, 0.15);
-        margin-bottom: 22px;
+        margin-bottom: 20px;
         position: relative;
         overflow: hidden;
     }
@@ -82,29 +84,29 @@ st.markdown("""
         pointer-events: none;
     }
     .hero-title {
-        font-size: 28px;
+        font-size: 26px;
         font-weight: 850;
         letter-spacing: -0.5px;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         display: flex;
         align-items: center;
         gap: 12px;
     }
     .hero-desc {
-        font-size: 15px;
+        font-size: 14px;
         color: #E2E8F0;
         font-weight: 450;
-        line-height: 1.6;
+        line-height: 1.5;
     }
     .hero-tag {
         display: inline-block;
         background: rgba(255, 255, 255, 0.2);
         backdrop-filter: blur(8px);
-        padding: 5px 14px;
+        padding: 4px 14px;
         border-radius: 9999px;
-        font-size: 12.5px;
+        font-size: 12px;
         font-weight: 700;
-        margin-top: 12px;
+        margin-top: 10px;
         border: 1px solid rgba(255, 255, 255, 0.25);
     }
 
@@ -119,18 +121,18 @@ st.markdown("""
         background: #FFFFFF;
         border: 1.5px solid #E2E8F0;
         border-radius: 16px;
-        padding: 20px 22px;
+        padding: 18px 20px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
         transition: transform 0.2s ease, box-shadow 0.2s ease;
         position: relative;
         overflow: hidden;
-        min-height: 125px;
+        min-height: 120px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
     }
     .kpi-card:hover {
-        transform: translateY(-3px);
+        transform: translateY(-2px);
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08);
     }
     .kpi-card-border-blue { border-top: 6px solid #2563EB; }
@@ -144,7 +146,7 @@ st.markdown("""
     .kpi-card-border-amber { border-top: 6px solid #F59E0B; }
 
     .kpi-label {
-        font-size: 12.5px;
+        font-size: 12px;
         font-weight: 700;
         color: #475569;
         text-transform: uppercase;
@@ -154,14 +156,14 @@ st.markdown("""
         gap: 6px;
     }
     .kpi-value {
-        font-size: 32px;
+        font-size: 28px;
         font-weight: 900;
         color: #0F172A;
         line-height: 1.1;
-        margin-top: 8px;
+        margin-top: 6px;
     }
     .kpi-unit {
-        font-size: 15px;
+        font-size: 14px;
         font-weight: 600;
         color: #64748B;
         margin-left: 4px;
@@ -170,46 +172,46 @@ st.markdown("""
     /* Hộp nhập liệu TO & NỔI BẬT */
     .floating-box {
         background: #FFFFFF;
-        border: 2.5px solid #2563EB;
-        border-radius: 18px;
-        padding: 26px 30px;
-        box-shadow: 0 14px 35px -5px rgba(37, 99, 235, 0.16), 0 10px 15px -6px rgba(37, 99, 235, 0.08);
-        margin-bottom: 24px;
+        border: 2px solid #2563EB;
+        border-radius: 16px;
+        padding: 22px 26px;
+        box-shadow: 0 12px 30px -5px rgba(37, 99, 235, 0.14);
+        margin-bottom: 20px;
     }
     .box-header {
-        font-size: 20px;
+        font-size: 19px;
         font-weight: 800;
         color: #1E3A8A;
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-bottom: 16px;
+        margin-bottom: 14px;
     }
 
-    /* Nút chính to bản, rực rỡ */
+    /* Nút chính to bản */
     div.stButton > button[kind="primary"] {
         background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%) !important;
         color: white !important;
         font-weight: 800 !important;
-        font-size: 16px !important;
-        border-radius: 12px !important;
-        padding: 10px 24px !important;
+        font-size: 15px !important;
+        border-radius: 10px !important;
+        padding: 8px 20px !important;
         border: none !important;
-        box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3) !important;
         transition: all 0.2s ease !important;
     }
     div.stButton > button[kind="primary"]:hover {
         transform: translateY(-2px) !important;
-        box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
+        box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
     }
 
-    /* Thẻ tóm tắt đơn hàng kết quả (Order Result Card) */
+    /* Thẻ tóm tắt đơn hàng kết quả */
     .order-card {
         background: #FFFFFF;
         border: 1.5px solid #E2E8F0;
         border-radius: 14px;
-        padding: 20px 24px;
-        margin-bottom: 16px;
+        padding: 18px 22px;
+        margin-bottom: 14px;
         box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
     }
     .order-card-ok {
@@ -224,11 +226,11 @@ st.markdown("""
         width: 100%;
         border-collapse: separate;
         border-spacing: 0;
-        font-size: 13.5px;
+        font-size: 13px;
         border-radius: 10px;
         overflow: hidden;
-        margin-top: 12px;
-        margin-bottom: 16px;
+        margin-top: 10px;
+        margin-bottom: 14px;
         border: 1px solid #CBD5E1;
         box-shadow: 0 2px 6px rgba(0,0,0,0.03);
     }
@@ -237,15 +239,15 @@ st.markdown("""
         color: #FFFFFF;
         text-align: left;
         font-weight: 700;
-        font-size: 13px;
+        font-size: 12.5px;
     }
     .styled-table th {
-        padding: 11px 12px;
+        padding: 10px 12px;
         border-right: 1px solid rgba(255, 255, 255, 0.1);
         vertical-align: middle;
     }
     .styled-table td {
-        padding: 9px 12px;
+        padding: 8px 12px;
         border-bottom: 1px solid #E2E8F0;
         border-right: 1px solid #E2E8F0;
         vertical-align: middle;
@@ -272,118 +274,77 @@ st.markdown("""
         background-color: #DCFCE7;
         color: #15803D;
         border: 1px solid #86EFAC;
-        padding: 5px 12px;
+        padding: 4px 10px;
         border-radius: 9999px;
         font-weight: 800;
-        font-size: 12px;
+        font-size: 11.5px;
         display: inline-block;
-        letter-spacing: 0.3px;
     }
     .badge-missing {
         background-color: #FEE2E2;
         color: #B91C1C;
         border: 1px solid #FCA5A5;
-        padding: 5px 12px;
+        padding: 4px 10px;
         border-radius: 9999px;
         font-weight: 800;
-        font-size: 12px;
+        font-size: 11.5px;
         display: inline-block;
-        letter-spacing: 0.3px;
     }
     .badge-order {
         background-color: #EFF6FF;
         color: #1D4ED8;
         border: 1px solid #BFDBFE;
-        padding: 5px 12px;
-        border-radius: 8px;
+        padding: 4px 10px;
+        border-radius: 6px;
         font-weight: 800;
-        font-size: 14px;
+        font-size: 13.5px;
+        display: inline-block;
+    }
+    .badge-role {
+        padding: 3px 10px;
+        border-radius: 9999px;
+        font-weight: 800;
+        font-size: 12px;
         display: inline-block;
     }
 
-    /* Thẻ Spotlight Báo Cáo Nhanh Đơn Sẵn Sàng Chạy */
-    .spotlight-card {
+    /* Login Card UI */
+    .login-container {
+        max-width: 900px;
+        margin: 40px auto;
         background: #FFFFFF;
-        border: 1.5px solid #CBD5E1;
-        border-radius: 14px;
-        padding: 16px 18px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
-        border-top: 5px solid #059669;
-        margin-bottom: 8px;
-        min-height: 215px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
-    .spotlight-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 20px rgba(5, 150, 105, 0.15);
-        border-color: #10B981;
-    }
-    .spotlight-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 6px;
-    }
-    .spotlight-order {
-        font-size: 19px;
-        font-weight: 850;
-        color: #1E3A8A;
-    }
-    .spotlight-desc {
-        font-size: 13px;
-        color: #475569;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-bottom: 8px;
-    }
-    .spotlight-qty-box {
-        background: linear-gradient(180deg, #F0FDF4 0%, #DCFCE7 100%);
-        border: 1px solid #86EFAC;
-        border-radius: 10px;
-        padding: 8px 12px;
-        text-align: center;
-        margin-bottom: 8px;
-    }
-    .spotlight-qty-label {
-        font-size: 11px;
-        font-weight: 700;
-        color: #166534;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .spotlight-qty-val {
-        font-size: 26px;
-        font-weight: 900;
-        color: #059669;
-        line-height: 1.1;
-    }
-    .spotlight-qty-unit {
-        font-size: 13px;
-        font-weight: 700;
-        color: #15803D;
-        margin-left: 3px;
-    }
-    .spotlight-bottleneck {
-        font-size: 11.5px;
-        color: #64748B;
-        background: #F8FAFC;
-        padding: 5px 8px;
-        border-radius: 8px;
+        border-radius: 20px;
+        padding: 36px 40px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.08);
         border: 1px solid #E2E8F0;
-        margin-bottom: 6px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+    }
+    .quick-role-card {
+        border-radius: 12px;
+        padding: 16px;
+        border: 1.5px solid #E2E8F0;
+        background: #F8FAFC;
+        text-align: center;
+        transition: all 0.2s ease;
+    }
+    .quick-role-card:hover {
+        border-color: #2563EB;
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(37,99,235,0.12);
     }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== LƯU TRỮ KIÊN CỐ & SESSION STATE (KHÔNG MẤT KHI REFRESH) ====================
+# Khởi tạo Auth & Storage
+auth_manager.init_auth_system()
+
+# Quản lý Session State
+if 'current_user' not in st.session_state:
+    # Mặc định tự động đăng nhập tài khoản planner để sẵn sàng dùng ngay hoặc chọn đổi tài khoản
+    st.session_state.current_user = None
+
+if 'workspace_mode' not in st.session_state:
+    st.session_state.workspace_mode = storage_manager.WORKSPACE_PRIVATE
+
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PERSIST_DIR = os.path.join(APP_DIR, ".persistent_data")
 os.makedirs(DATA_PERSIST_DIR, exist_ok=True)
@@ -391,48 +352,137 @@ STOCK_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_stock.xlsx")
 BOM_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_bom.xlsx")
 PLAN_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_plan.xlsx")
 META_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "metadata.json")
-QUEUE_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "orders_queue.json")
 
 def load_meta():
-    if os.path.exists(META_PERSIST_FILE):
-        try:
-            with open(META_PERSIST_FILE, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {}
+    return storage_manager.load_shared_meta()
 
 def save_meta(update_dict):
-    try:
-        curr = load_meta()
-        curr.update(update_dict)
-        with open(META_PERSIST_FILE, 'w', encoding='utf-8') as f:
-            json.dump(curr, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-def load_persisted_queue():
-    if os.path.exists(QUEUE_PERSIST_FILE):
-        try:
-            with open(QUEUE_PERSIST_FILE, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                if isinstance(data, list):
-                    return data
-        except Exception:
-            pass
-    return []
-
-def save_persisted_queue(queue):
-    try:
-        with open(QUEUE_PERSIST_FILE, 'w', encoding='utf-8') as f:
-            json.dump(queue, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    storage_manager.update_shared_meta(update_dict)
 
 meta = load_meta()
 
+
+# ==================== MÀN HÌNH ĐĂNG NHẬP (KHI CHƯA XÁC THỰC) ====================
+if st.session_state.current_user is None:
+    st.markdown("""
+    <div style="text-align: center; margin-top: 20px; margin-bottom: 25px;">
+        <h1 style="color: #1E3A8A; font-size: 32px; font-weight: 900; margin-bottom: 8px;">
+            📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO (FIFO)
+        </h1>
+        <p style="color: #64748B; font-size: 16px; max-width: 750px; margin: 0 auto;">
+            Hệ thống quản lý đối soát vật tư đa người dùng. Vui lòng đăng nhập hoặc chọn <b>Đăng nhập nhanh 1 chạm</b> theo phân quyền công việc của bạn.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_l1, col_l2, col_l3 = safe_columns([1, 8, 1])
+    with col_l2:
+        st.markdown("""
+        <div style="background:#EFF6FF; border: 1.5px solid #BFDBFE; border-radius: 14px; padding: 16px 22px; margin-bottom: 20px;">
+            <div style="font-weight: 800; color: #1D4ED8; font-size: 15px; margin-bottom: 4px;">
+                ⚡ ĐĂNG NHẬP NHANH 1 CHẠM (DÀNH CHO TRẢI NGHIỆM & KIỂM THỬ)
+            </div>
+            <div style="font-size: 13px; color: #475569;">
+                Bấm vào một trong các vai trò dưới đây để vào ngay hệ thống với đúng phân quyền tương ứng:
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        c_r1, c_r2, c_r3, c_r4 = safe_columns(4)
+        with c_r1:
+            st.markdown("""
+            <div class="quick-role-card" style="border-top: 4px solid #DC2626;">
+                <div style="font-size: 18px;">👑</div>
+                <div style="font-weight: 850; color: #DC2626; font-size: 14px; margin-top: 4px;">Quản Trị Viên</div>
+                <div style="font-size: 11.5px; color: #64748B; margin-top: 2px;">Tài khoản: <b>admin</b></div>
+                <div style="font-size: 11px; color: #475569; margin-top: 6px;">Toàn quyền hệ thống & quản lý tài khoản</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 Vào với quyền Admin", key="btn_quick_admin", use_container_width=True, type="primary"):
+                ok, u_info, _ = auth_manager.authenticate("admin", "admin123")
+                if ok:
+                    st.session_state.current_user = u_info
+                    st.rerun()
+
+        with c_r2:
+            st.markdown("""
+            <div class="quick-role-card" style="border-top: 4px solid #2563EB;">
+                <div style="font-size: 18px;">📋</div>
+                <div style="font-weight: 850; color: #2563EB; font-size: 14px; margin-top: 4px;">Kế Hoạch & ĐĐSX</div>
+                <div style="font-size: 11.5px; color: #64748B; margin-top: 2px;">Tài khoản: <b>planner</b></div>
+                <div style="font-size: 11px; color: #475569; margin-top: 6px;">Quản lý hàng chờ FIFO & xuất Excel</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 Vào với quyền Planner", key="btn_quick_plan", use_container_width=True, type="primary"):
+                ok, u_info, _ = auth_manager.authenticate("planner", "plan123")
+                if ok:
+                    st.session_state.current_user = u_info
+                    st.rerun()
+
+        with c_r3:
+            st.markdown("""
+            <div class="quick-role-card" style="border-top: 4px solid #059669;">
+                <div style="font-size: 18px;">🏬</div>
+                <div style="font-weight: 850; color: #059669; font-size: 14px; margin-top: 4px;">Thủ Kho & Vật Tư</div>
+                <div style="font-size: 11.5px; color: #64748B; margin-top: 2px;">Tài khoản: <b>warehouse</b></div>
+                <div style="font-size: 11px; color: #475569; margin-top: 6px;">Cập nhật Tồn kho & kiểm tra mã thiếu</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 Vào với quyền Kho", key="btn_quick_ware", use_container_width=True, type="primary"):
+                ok, u_info, _ = auth_manager.authenticate("warehouse", "kho123")
+                if ok:
+                    st.session_state.current_user = u_info
+                    st.rerun()
+
+        with c_r4:
+            st.markdown("""
+            <div class="quick-role-card" style="border-top: 4px solid #64748B;">
+                <div style="font-size: 18px;">👁️</div>
+                <div style="font-weight: 850; color: #475569; font-size: 14px; margin-top: 4px;">Người Xem / Công Nhân</div>
+                <div style="font-size: 11.5px; color: #64748B; margin-top: 2px;">Tài khoản: <b>viewer</b></div>
+                <div style="font-size: 11px; color: #475569; margin-top: 6px;">Chỉ xem báo cáo & tải file Excel</div>
+            </div>
+            """, unsafe_allow_html=True)
+            if st.button("🚀 Vào với quyền Viewer", key="btn_quick_view", use_container_width=True):
+                ok, u_info, _ = auth_manager.authenticate("viewer", "view123")
+                if ok:
+                    st.session_state.current_user = u_info
+                    st.rerun()
+
+        st.markdown("<hr style='margin: 24px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+        
+        # Form đăng nhập tài khoản tùy chỉnh
+        with st.form("custom_login_form"):
+            st.markdown("#### 🔐 Hoặc Đăng Nhập Với Tài Khoản Riêng:")
+            col_inp_u, col_inp_p = safe_columns(2)
+            with col_inp_u:
+                username_input = st.text_input("Tên đăng nhập:", placeholder="Ví dụ: admin, planner...")
+            with col_inp_p:
+                password_input = st.text_input("Mật khẩu:", type="password", placeholder="Nhập mật khẩu...")
+            btn_submit_login = st.form_submit_button("Đăng Nhập", type="primary", use_container_width=True)
+            if btn_submit_login:
+                ok, user_res, err_msg = auth_manager.authenticate(username_input, password_input)
+                if ok:
+                    st.session_state.current_user = user_res
+                    st.success(f"Xin chào {user_res['full_name']}!")
+                    st.rerun()
+                else:
+                    st.error(f"⚠️ {err_msg}")
+    st.stop()
+
+
+# ==================== ĐÃ ĐĂNG NHẬP: KHỞI TẠO DỮ LIỆU & QUYỀN HẠN ====================
+current_user = st.session_state.current_user
+username = current_user['username']
+user_role = current_user['role']
+user_fullname = current_user['full_name']
+user_permissions = current_user.get('permissions', {})
+role_meta = auth_manager.ROLES_METADATA.get(user_role, auth_manager.ROLES_METADATA[auth_manager.ROLE_VIEWER])
+
+# Khởi tạo hàng chờ theo Không gian làm việc
 if 'orders_queue' not in st.session_state:
-    st.session_state.orders_queue = load_persisted_queue()
+    st.session_state.orders_queue = storage_manager.load_queue(username, st.session_state.workspace_mode)
+
 if 'custom_bom_bytes' not in st.session_state:
     if os.path.exists(BOM_PERSIST_FILE):
         try:
@@ -445,6 +495,7 @@ if 'custom_bom_bytes' not in st.session_state:
     else:
         st.session_state.custom_bom_bytes = None
         st.session_state.custom_bom_name = None
+
 if 'custom_stock_bytes' not in st.session_state:
     if os.path.exists(STOCK_PERSIST_FILE):
         try:
@@ -457,6 +508,7 @@ if 'custom_stock_bytes' not in st.session_state:
     else:
         st.session_state.custom_stock_bytes = None
         st.session_state.custom_stock_name = None
+
 if 'custom_plan_bytes' not in st.session_state:
     if os.path.exists(PLAN_PERSIST_FILE):
         try:
@@ -469,10 +521,12 @@ if 'custom_plan_bytes' not in st.session_state:
     else:
         st.session_state.custom_plan_bytes = None
         st.session_state.custom_plan_name = None
+
 if 'quick_selected_order' not in st.session_state:
     st.session_state.quick_selected_order = "8393"
 if 'quick_selected_qty' not in st.session_state:
     st.session_state.quick_selected_qty = "100"
+
 
 def find_data_file(keywords):
     """Tìm file dữ liệu tự động theo từ khóa trong thư mục script, thư mục làm việc và thư mục cha."""
@@ -495,16 +549,15 @@ def find_data_file(keywords):
             pass
     return None
 
+
 # ==================== HÀM LOAD DỮ LIỆU CÓ CACHE ====================
 @st.cache_data
 def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
-    # Xác định file BOM
     if bom_bytes:
         bom_source = io.BytesIO(bom_bytes)
     else:
         bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom'])
 
-    # Xác định file Tồn kho (Ưu tiên Stock 61, sau đó Stock Balance)
     if stock_bytes:
         stock_source = io.BytesIO(stock_bytes)
     else:
@@ -564,82 +617,176 @@ def get_cached_single_order_excel(cache_key, _order_result):
 def get_cached_all_excel(cache_key, _calculation_results):
     return core_engine.export_all_orders_to_excel(_calculation_results)
 
-# ==================== SIDEBAR QUẢN LÝ DỮ LIỆU (LUÔN HIỂN THỊ) ====================
+
+# ==================== SIDEBAR QUẢN LÝ TÀI KHOẢN & DỮ LIỆU NGUỒN ====================
 with st.sidebar:
-    st.markdown("### ⚙️ Dữ Liệu Nguồn")
-    st.caption("Quản lý file Tồn kho, Định mức BOM và Kế hoạch sản xuất.")
+    # 1. Thẻ thông tin người dùng đang đăng nhập
+    st.markdown(f"""
+    <div style="background: {role_meta['bg_color']}; border: 1.5px solid {role_meta['badge_color']}; border-radius: 12px; padding: 12px 14px; margin-bottom: 12px;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-weight: 850; color: #0F172A; font-size: 14px;">👤 {user_fullname}</span>
+            <span class="badge-role" style="background:{role_meta['badge_color']}; color:white;">{role_meta['name'].split('(')[0].strip()}</span>
+        </div>
+        <div style="font-size: 12px; color: #475569; margin-top: 4px;">
+            Bộ phận: <b>{current_user.get('department', 'Sản xuất')}</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
     
-    # Nút upload Tồn kho
+    col_sb_act1, col_sb_act2 = safe_columns(2)
+    with col_sb_act1:
+        with st.popover("🔑 Đổi mật khẩu", use_container_width=True):
+            st.markdown("##### Đổi mật khẩu cá nhân")
+            curr_pw = st.text_input("Mật khẩu hiện tại:", type="password", key="chg_curr_pw")
+            new_pw = st.text_input("Mật khẩu mới:", type="password", key="chg_new_pw")
+            new_pw_cf = st.text_input("Xác nhận MK mới:", type="password", key="chg_new_cf")
+            if st.button("Lưu mật khẩu mới", use_container_width=True, type="primary"):
+                if new_pw != new_pw_cf:
+                    st.error("Xác nhận mật khẩu mới không khớp.")
+                else:
+                    chg_ok, chg_msg = auth_manager.change_own_password(username, curr_pw, new_pw)
+                    if chg_ok:
+                        st.success(chg_msg)
+                    else:
+                        st.error(chg_msg)
+    with col_sb_act2:
+        if st.button("🚪 Đăng xuất", use_container_width=True):
+            auth_manager.log_activity(username, "LOGOUT", f"Người dùng {user_fullname} đã đăng xuất")
+            st.session_state.current_user = None
+            st.rerun()
+
+    st.divider()
+
+    # 2. Điều khiển Không gian làm việc (Private vs Shared Workspace)
+    st.markdown("#### 🌐 Không Gian Làm Việc (Workspace)")
+    current_mode = st.session_state.workspace_mode
+    mode_options = [
+        ("private", "👤 Không gian Cá nhân (Riêng tư)"),
+        ("shared", "👥 Không gian Đội nhóm (Chung)")
+    ]
+    mode_choice = st.radio(
+        "Chế độ hiển thị hàng chờ:",
+        options=[m[0] for m in mode_options],
+        format_func=lambda x: next(m[1] for m in mode_options if m[0] == x),
+        index=0 if current_mode == "private" else 1,
+        help="Không gian cá nhân giúp bạn thoải mái thử nghiệm đối soát độc lập, không làm xáo trộn màn hình người khác!"
+    )
+    if mode_choice != st.session_state.workspace_mode:
+        st.session_state.workspace_mode = mode_choice
+        st.session_state.orders_queue = storage_manager.load_queue(username, mode_choice)
+        st.rerun()
+
+    # Nút đồng bộ hàng chờ
+    if user_permissions.get('can_manage_queue', False):
+        col_sync1, col_sync2 = safe_columns(2)
+        with col_sync1:
+            if st.button("📤 Xuất bản Chung", help="Đưa hàng chờ cá nhân của bạn thành hàng chờ chung cho toàn nhà máy", use_container_width=True):
+                s_ok, s_msg = storage_manager.copy_queue(storage_manager.WORKSPACE_PRIVATE, storage_manager.WORKSPACE_SHARED, username)
+                if s_ok:
+                    auth_manager.log_activity(username, "SYNC_QUEUE_PUBLISH", "Xuất bản hàng chờ cá nhân lên hàng chờ chung")
+                    st.toast(s_msg, icon="✅")
+                    if st.session_state.workspace_mode == storage_manager.WORKSPACE_SHARED:
+                        st.session_state.orders_queue = storage_manager.load_queue(username, storage_manager.WORKSPACE_SHARED)
+                        st.rerun()
+        with col_sync2:
+            if st.button("📥 Sao chép về", help="Sao chép hàng chờ chung về không gian cá nhân của bạn để chỉnh sửa độc lập", use_container_width=True):
+                s_ok, s_msg = storage_manager.copy_queue(storage_manager.WORKSPACE_SHARED, storage_manager.WORKSPACE_PRIVATE, username)
+                if s_ok:
+                    auth_manager.log_activity(username, "SYNC_QUEUE_PULL", "Sao chép hàng chờ chung về không gian cá nhân")
+                    st.toast(s_msg, icon="✅")
+                    if st.session_state.workspace_mode == storage_manager.WORKSPACE_PRIVATE:
+                        st.session_state.orders_queue = storage_manager.load_queue(username, storage_manager.WORKSPACE_PRIVATE)
+                        st.rerun()
+
+    st.divider()
+
+    # 3. Quản lý Dữ liệu Nguồn có Phân Quyền
+    st.markdown("### ⚙️ Dữ Liệu Nguồn (Upload)")
+    
+    # Upload Tồn kho (Chỉ Admin & Warehouse)
     st.markdown("#### 1. File Tồn kho (Stock 61 / Stock Balance)")
-    uploaded_stock = st.file_uploader(
-        "Tải lên file Tồn kho mới",
-        type=["xlsx", "xls"],
-        key="uploader_stock",
-        help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
-    )
-    if uploaded_stock is not None:
-        stock_bytes_val = uploaded_stock.getvalue()
-        if (st.session_state.custom_stock_bytes != stock_bytes_val) or (st.session_state.custom_stock_name != uploaded_stock.name):
-            st.session_state.custom_stock_bytes = stock_bytes_val
-            st.session_state.custom_stock_name = uploaded_stock.name
-            try:
-                with open(STOCK_PERSIST_FILE, 'wb') as f:
-                    f.write(stock_bytes_val)
-                save_meta({'stock_name': uploaded_stock.name})
-            except Exception:
-                pass
-            st.cache_data.clear()
-            st.rerun()
-        
+    if user_permissions.get('can_upload_stock', False):
+        uploaded_stock = st.file_uploader(
+            "Tải lên file Tồn kho mới",
+            type=["xlsx", "xls"],
+            key="uploader_stock",
+            help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
+        )
+        if uploaded_stock is not None:
+            stock_bytes_val = uploaded_stock.getvalue()
+            if (st.session_state.custom_stock_bytes != stock_bytes_val) or (st.session_state.custom_stock_name != uploaded_stock.name):
+                st.session_state.custom_stock_bytes = stock_bytes_val
+                st.session_state.custom_stock_name = uploaded_stock.name
+                try:
+                    with open(STOCK_PERSIST_FILE, 'wb') as f:
+                        f.write(stock_bytes_val)
+                    save_meta({'stock_name': uploaded_stock.name})
+                    auth_manager.log_activity(username, "UPLOAD_STOCK", f"Tải lên file tồn kho mới: {uploaded_stock.name}")
+                except Exception:
+                    pass
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.info("🔒 Quyền **Thủ kho** hoặc **Admin** mới được nạp file Tồn kho mới.")
+
     st.divider()
     
-    # Nút upload Production BOM
+    # Upload Production BOM (Chỉ Admin & Planner)
     st.markdown("#### 2. File Định mức (Production BOM)")
-    uploaded_bom = st.file_uploader(
-        "Tải lên file Production BOM mới",
-        type=["xlsx", "xls"],
-        key="uploader_bom",
-        help="Cột quan trọng: Product Code, Component Code, Qty"
-    )
-    if uploaded_bom is not None:
-        bom_bytes_val = uploaded_bom.getvalue()
-        if (st.session_state.custom_bom_bytes != bom_bytes_val) or (st.session_state.custom_bom_name != uploaded_bom.name):
-            st.session_state.custom_bom_bytes = bom_bytes_val
-            st.session_state.custom_bom_name = uploaded_bom.name
-            try:
-                with open(BOM_PERSIST_FILE, 'wb') as f:
-                    f.write(bom_bytes_val)
-                save_meta({'bom_name': uploaded_bom.name})
-            except Exception:
-                pass
-            st.cache_data.clear()
-            st.rerun()
+    if user_permissions.get('can_upload_bom', False):
+        uploaded_bom = st.file_uploader(
+            "Tải lên file Production BOM mới",
+            type=["xlsx", "xls"],
+            key="uploader_bom",
+            help="Cột quan trọng: Product Code, Component Code, Qty"
+        )
+        if uploaded_bom is not None:
+            bom_bytes_val = uploaded_bom.getvalue()
+            if (st.session_state.custom_bom_bytes != bom_bytes_val) or (st.session_state.custom_bom_name != uploaded_bom.name):
+                st.session_state.custom_bom_bytes = bom_bytes_val
+                st.session_state.custom_bom_name = uploaded_bom.name
+                try:
+                    with open(BOM_PERSIST_FILE, 'wb') as f:
+                        f.write(bom_bytes_val)
+                    save_meta({'bom_name': uploaded_bom.name})
+                    auth_manager.log_activity(username, "UPLOAD_BOM", f"Tải lên file BOM mới: {uploaded_bom.name}")
+                except Exception:
+                    pass
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.info("🔒 Quyền **Kế hoạch** hoặc **Admin** mới được nạp file BOM mới.")
 
     st.divider()
 
-    # Nút upload Kế hoạch sản xuất
-    st.markdown("#### 3. File Kế hoạch sản xuất (Kế hoạch.xlsx)")
-    uploaded_plan = st.file_uploader(
-        "Tải lên file Kế hoạch mới",
-        type=["xlsx", "xls"],
-        key="uploader_plan",
-        help="Cột quan trọng: MODEL và Qty (và Due date nếu có)"
-    )
-    if uploaded_plan is not None:
-        plan_bytes_val = uploaded_plan.getvalue()
-        if (st.session_state.custom_plan_bytes != plan_bytes_val) or (st.session_state.custom_plan_name != uploaded_plan.name):
-            st.session_state.custom_plan_bytes = plan_bytes_val
-            st.session_state.custom_plan_name = uploaded_plan.name
-            try:
-                with open(PLAN_PERSIST_FILE, 'wb') as f:
-                    f.write(plan_bytes_val)
-                save_meta({'plan_name': uploaded_plan.name})
-            except Exception:
-                pass
-            st.cache_data.clear()
-            st.rerun()
+    # Upload Kế hoạch sản xuất (Chỉ Admin & Planner)
+    st.markdown("#### 3. File Kế hoạch sản xuất")
+    if user_permissions.get('can_upload_plan', False):
+        uploaded_plan = st.file_uploader(
+            "Tải lên file Kế hoạch mới",
+            type=["xlsx", "xls"],
+            key="uploader_plan",
+            help="Cột quan trọng: MODEL và Qty (và Due date nếu có)"
+        )
+        if uploaded_plan is not None:
+            plan_bytes_val = uploaded_plan.getvalue()
+            if (st.session_state.custom_plan_bytes != plan_bytes_val) or (st.session_state.custom_plan_name != uploaded_plan.name):
+                st.session_state.custom_plan_bytes = plan_bytes_val
+                st.session_state.custom_plan_name = uploaded_plan.name
+                try:
+                    with open(PLAN_PERSIST_FILE, 'wb') as f:
+                        f.write(plan_bytes_val)
+                    save_meta({'plan_name': uploaded_plan.name})
+                    auth_manager.log_activity(username, "UPLOAD_PLAN", f"Tải lên file Kế hoạch mới: {uploaded_plan.name}")
+                except Exception:
+                    pass
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.info("🔒 Quyền **Kế hoạch** hoặc **Admin** mới được nạp file Kế hoạch mới.")
 
-# Xác định nguồn dữ liệu ưu tiên: File upload trực tiếp > File đã lưu session
+
+# Tải dữ liệu thực tế
 active_stock_bytes = st.session_state.custom_stock_bytes
 active_stock_name = st.session_state.custom_stock_name
 active_bom_bytes = st.session_state.custom_bom_bytes
@@ -647,7 +794,6 @@ active_bom_name = st.session_state.custom_bom_name
 active_plan_bytes = st.session_state.custom_plan_bytes
 active_plan_name = st.session_state.custom_plan_name
 
-# Tải dữ liệu
 df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
     active_bom_bytes,
     active_bom_name,
@@ -660,29 +806,24 @@ df_plan, plan_file_display_name = get_loaded_plan_data(
     active_plan_name
 )
 
-# Hiển thị thông tin file nạp và điều khiển trên sidebar
+# Hiển thị tóm tắt dữ liệu ở Sidebar
 with st.sidebar:
-    default_stock_path = (
-        find_data_file(['stock', '61']) 
-        or find_data_file(['stock', 'balance']) 
-        or find_data_file(['stock'])
-    )
-    default_stock_label = (
-        f"{os.path.basename(default_stock_path)} (Mặc định)"
-        if default_stock_path else "Stock 61.xlsx (Mặc định)"
-    )
+    st.markdown("---")
+    st.markdown("#### 📊 Dữ liệu hiện tại:")
+    default_stock_path = find_data_file(['stock', '61']) or find_data_file(['stock', 'balance']) or find_data_file(['stock'])
+    default_stock_label = f"{os.path.basename(default_stock_path)} (Mặc định)" if default_stock_path else "Stock 61.xlsx (Mặc định)"
     current_stock_name = active_stock_name or default_stock_label
     if df_stock is not None:
         st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
     else:
-        st.caption(f"📁 **{current_stock_name}** (Chưa nạp được dữ liệu)")
-        
+        st.caption(f"📁 **{current_stock_name}** (Chưa nạp)")
+
     current_bom_name = active_bom_name or "Production BOM List 10.2.xlsx (Mặc định)"
     if df_bom is not None:
         st.caption(f"📁 **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
     else:
-        st.caption(f"📁 **{current_bom_name}** (Chưa nạp được dữ liệu)")
-        
+        st.caption(f"📁 **{current_bom_name}** (Chưa nạp)")
+
     current_plan_name = active_plan_name or plan_file_display_name or "Kế hoạch.xlsx (Mặc định)"
     if df_plan is not None:
         plan_orders_temp = core_engine.extract_orders_from_plan(df_plan)
@@ -690,71 +831,52 @@ with st.sidebar:
     else:
         st.caption(f"📁 **{current_plan_name}** (Chưa có file kế hoạch)")
 
-    st.divider()
-    
-    # Nút reset về file gốc
-    if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
-        if st.button("🔄 Khôi phục dữ liệu mẫu mặc định", use_container_width=True):
-            st.session_state.custom_bom_bytes = None
-            st.session_state.custom_bom_name = None
-            st.session_state.custom_stock_bytes = None
-            st.session_state.custom_stock_name = None
-            st.session_state.custom_plan_bytes = None
-            st.session_state.custom_plan_name = None
-            st.session_state.orders_queue = []
-            if os.path.exists(STOCK_PERSIST_FILE):
-                try: os.remove(STOCK_PERSIST_FILE)
-                except Exception: pass
-            if os.path.exists(BOM_PERSIST_FILE):
-                try: os.remove(BOM_PERSIST_FILE)
-                except Exception: pass
-            if os.path.exists(PLAN_PERSIST_FILE):
-                try: os.remove(PLAN_PERSIST_FILE)
-                except Exception: pass
-            if os.path.exists(META_PERSIST_FILE):
-                try: os.remove(META_PERSIST_FILE)
-                except Exception: pass
-            save_persisted_queue([])
-            st.cache_data.clear()
-            st.success("Đã khôi phục dữ liệu mẫu mặc định!")
-            st.rerun()
-            
-    st.markdown("---")
-    st.markdown("#### 💡 Cơ chế tính toán:")
-    st.markdown("""
-    - **1 Đơn hàng = 1 Bộ nguyên đơn**: Tự động ghép đủ 2 vế **Trái và Phải** từ Model trong Kế hoạch hoặc BOM.
-    - **Định mức nhân số lượng**: Hệ thống nhân riêng `ĐM Trái × SL Trái` và `ĐM Phải × SL Phải` rồi cộng lại thành tổng BOM cần chạy.
-    - **Phân bổ FIFO Trái trước - Phải sau**: Ưu tiên trừ dần tồn kho từ trên xuống dưới; trong từng đơn hàng trừ vế Trái trước, số tồn kho còn lại tiếp tục trừ cho vế Phải sau và báo thiếu ở vế thiếu cuối cùng.
-    """)
+    # Nút khôi phục dữ liệu gốc (chỉ Admin)
+    if user_permissions.get('can_reset_data', False):
+        if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
+            st.divider()
+            if st.button("🔄 Khôi phục dữ liệu mẫu gốc", use_container_width=True):
+                st.session_state.custom_bom_bytes = None
+                st.session_state.custom_bom_name = None
+                st.session_state.custom_stock_bytes = None
+                st.session_state.custom_stock_name = None
+                st.session_state.custom_plan_bytes = None
+                st.session_state.custom_plan_name = None
+                st.session_state.orders_queue = []
+                for p_file in [STOCK_PERSIST_FILE, BOM_PERSIST_FILE, PLAN_PERSIST_FILE, META_PERSIST_FILE]:
+                    if os.path.exists(p_file):
+                        try: os.remove(p_file)
+                        except Exception: pass
+                storage_manager.save_queue([], username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "RESET_DATA", "Khôi phục dữ liệu mẫu mặc định của toàn hệ thống")
+                st.cache_data.clear()
+                st.success("Đã khôi phục dữ liệu mẫu mặc định!")
+                st.rerun()
 
-# ==================== MAIN BANNER (LUÔN HIỂN THỊ) ====================
-st.markdown("""
+
+# ==================== MAIN BANNER ====================
+workspace_title = "Không Gian Cá Nhân (Riêng Tư)" if st.session_state.workspace_mode == storage_manager.WORKSPACE_PRIVATE else "Không Gian Đội Nhóm (Chung Nhà Máy)"
+st.markdown(f"""
 <div class="hero-banner">
-    <div class="hero-title">📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO</div>
-    <div class="hero-desc">
-        Tự động tính toán định mức nguyên đơn <b>(Trái + Phải)</b> theo số lượng cần chạy | 
-        Phân bổ trừ tồn kho tự động theo thứ tự ưu tiên <b>FIFO</b> | 
-        Báo cáo Excel chuẩn hóa tiêu đề: <b>ITEM CODE</b> & <b>DESCRIPTION (tên mô tả)</b>.
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div class="hero-title">📦 HỆ THỐNG ĐỐI SOÁT BOM SẢN XUẤT & TỒN KHO</div>
+        <div style="background: rgba(255,255,255,0.2); padding: 5px 14px; border-radius: 9999px; font-size: 13px; font-weight: 800; border: 1px solid rgba(255,255,255,0.3);">
+            👤 {user_fullname} | {role_meta['name'].split('(')[0]} | 🌐 {workspace_title}
+        </div>
     </div>
-    <div class="hero-tag">✨ Sẵn sàng lên kế hoạch sản xuất</div>
+    <div class="hero-desc">
+        Tự động tính định mức nguyên đơn <b>(Trái + Phải)</b> | Phân bổ trừ tồn kho tự động <b>FIFO (Trái trước - Phải sau)</b> | Quản lý & phân quyền đa người dùng mượt mà, chính xác.
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
-# KIỂM TRA TRẠNG THÁI DỮ LIỆU
+# KIỂM TRA LỖI NẠP FILE
 if df_bom is None or df_stock is None:
     st.warning(f"⚠️ **Thông báo hệ thống**: {load_error or 'Chưa thể nạp dữ liệu mặc định.'}")
-    st.markdown("""
-    <div style="background: #F8FAFC; border: 2px dashed #94A3B8; border-radius: 14px; padding: 24px; text-align: center; margin-top: 16px;">
-        <h4 style="color: #1E293B; margin-bottom: 8px;">📁 Vui lòng tải lên file dữ liệu ở thanh bên trái (Sidebar)</h4>
-        <p style="color: #64748B; font-size: 14px; max-width: 600px; margin: 0 auto;">
-            Hệ thống cần 2 file: <b>Stock 61</b> (hoặc Stock Balance - tồn kho hiện có) và <b>Production BOM</b> (định mức sản xuất).
-            Vui lòng mở menu thanh bên trái và tải file Excel lên để hệ thống tự động đối soát ngay lập tức!
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
     st.stop()
 
-# ==================== TÍNH TOÁN ĐỐI SOÁT FIFO NGAY ĐỂ ĐỒNG BỘ TOÀN HỆ THỐNG ====================
+
+# ==================== TÍNH TOÁN ĐỐI SOÁT FIFO HÀNG CHỜ ====================
 calculation_results = []
 actual_ok_orders = 0
 actual_missing_orders = 0
@@ -768,7 +890,7 @@ if queue_len > 0:
     actual_ok_orders = sum(1 for r in calculation_results if r.get('is_fully_ok', False))
     actual_missing_orders = len(calculation_results) - actual_ok_orders
 
-# ==================== CÁC THẺ KPI TO BẢN & SỐNG ĐỘNG (5 THẺ) ====================
+# 5 THẺ KPI TO BẢN
 col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
 with col_m1:
     st.markdown(f"""
@@ -778,12 +900,12 @@ with col_m1:
     </div>
     """, unsafe_allow_html=True)
 with col_m2:
-    if len(st.session_state.orders_queue) > 0:
+    if queue_len > 0:
         st.markdown(f"""
         <div class="kpi-card kpi-card-border-emerald">
             <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
-            <div class="kpi-value" style="color:#059669;">{actual_ok_orders}<span class="kpi-unit" style="color:#059669;">/ {queue_len} đơn</span></div>
-            <div style="font-size:12px; font-weight:700; color:#059669; margin-top:2px;">✨ {actual_ok_orders} đơn thực tế đối soát OK (Khả thi chạy)</div>
+            <div class="kpi-value" style="color:#059669;">{actual_ok_orders}<span class="kpi-unit" style="color:#059669;">/ {queue_len}</span></div>
+            <div style="font-size:11.5px; font-weight:700; color:#059669; margin-top:2px;">✨ {actual_ok_orders} đơn thực tế đối soát OK</div>
         </div>
         """, unsafe_allow_html=True)
     else:
@@ -791,13 +913,13 @@ with col_m2:
         <div class="kpi-card kpi-card-border-emerald">
             <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
             <div class="kpi-value" style="color:#059669;">{readiness_data['ready_count']}<span class="kpi-unit" style="color:#059669;">/ {readiness_data['total_orders']}</span></div>
-            <div style="font-size:12px; font-weight:700; color:#059669; margin-top:2px;">✨ {readiness_data['ready_percent']}% đơn sẵn sàng chạy</div>
+            <div style="font-size:11.5px; font-weight:700; color:#059669; margin-top:2px;">✨ {readiness_data['ready_percent']}% đơn sẵn sàng chạy</div>
         </div>
         """, unsafe_allow_html=True)
 with col_m3:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-green">
-        <div class="kpi-label">🧩 Mã Linh Kiện Trong Kho</div>
+        <div class="kpi-label">🧩 Linh Kiện Trong Kho</div>
         <div class="kpi-value">{len(df_stock['Stock_Code'].unique()):,}<span class="kpi-unit">mã</span></div>
     </div>
     """, unsafe_allow_html=True)
@@ -809,33 +931,40 @@ with col_m4:
     </div>
     """, unsafe_allow_html=True)
 with col_m5:
-    queue_len = len(st.session_state.orders_queue)
-    sub_kpi_html = f"""<div style="font-size:12px; font-weight:700; color:{'#059669' if actual_ok_orders > 0 else '#DC2626'}; margin-top:2px;">✨ {actual_ok_orders} / {queue_len} đơn đối soát OK</div>""" if queue_len > 0 else ""
+    sub_kpi = f"""<div style="font-size:11.5px; font-weight:700; color:{'#059669' if actual_ok_orders > 0 else '#DC2626'}; margin-top:2px;">✨ {actual_ok_orders} / {queue_len} đơn đối soát OK</div>""" if queue_len > 0 else ""
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-amber">
         <div class="kpi-label">⏳ Đơn Trong Hàng Chờ</div>
         <div class="kpi-value">{queue_len}<span class="kpi-unit">đơn</span></div>
-        {sub_kpi_html}
+        {sub_kpi}
     </div>
     """, unsafe_allow_html=True)
 
 
+# ==================== ĐIỀU HƯỚNG TABS CHÍNH ====================
+tabs_list = ["📊 Đối Soát & Hàng Chờ FIFO", "🚀 Đơn Sẵn Sàng Chạy", "🔍 Kiểm Tra Tính Toàn Vẹn & Chính Xác"]
+if user_permissions.get('can_view_audit', False):
+    tabs_list.append("📜 Nhật Ký Hoạt Động (Audit Log)")
+if user_permissions.get('can_manage_users', False):
+    tabs_list.append("🛡️ Quản Lý Người Dùng & Phân Quyền")
 
-# ==================== BẢNG NỔI NHẬP ĐƠN HÀNG TO & NỔI BẬT ====================
-st.markdown("""
-<div class="floating-box">
-    <div class="box-header">
-        <span>🎯 NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
+tabs = st.tabs(tabs_list)
+
+# TAB 1: ĐỐI SOÁT & HÀNG CHỜ FIFO
+with tabs[0]:
+    # 1. BẢNG NHẬP ĐƠN HÀNG
+    st.markdown("""
+    <div class="floating-box">
+        <div class="box-header">
+            <span>🎯 NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
+        </div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-with st.container():
     sorted_order_keys = sorted(orders_info.keys())
     ready_orders_dict = {ro['order_no']: ro for ro in readiness_data['ready_orders']}
-    not_ready_orders_dict = {ro['order_no']: ro for ro in readiness_data['not_ready_orders']}
     
-    # Gợi ý chọn nhanh các đơn đủ mã đồng bộ sẵn sàng chạy
+    # Gợi ý chọn nhanh 1 chạm
     st.markdown("**⚡ Gợi ý chọn nhanh các đơn đủ mã đồng bộ (1 Chạm để điền mã & SL tối đa):**")
     quick_sample_orders = ['5151', '5171', '8333', '4151', '1009', '5804']
     chip_cols = safe_columns(len(quick_sample_orders))
@@ -849,570 +978,516 @@ with st.container():
                     st.session_state.quick_selected_qty = str(int(ro_m['max_runnable_qty']))
                 st.rerun()
 
-    # Chuẩn bị danh sách đơn hàng hiển thị gọn gàng và trực quan
     def format_order_item(k):
         ro = ready_orders_dict.get(k)
         if ro:
             return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ - Tối đa: {ro['max_runnable_qty']:,} pcs)"
         else:
             return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện)"
-            
+
     col_input1, col_input2, col_input3 = safe_columns([5, 3, 2], vertical_alignment="bottom")
-    
     with col_input1:
-        # Tìm index mặc định theo order đang chọn
         curr_target = st.session_state.get('quick_selected_order', '5151')
         default_idx = sorted_order_keys.index(curr_target) if curr_target in sorted_order_keys else 0
-        
         selected_code = st.selectbox(
             "1. Chọn hoặc gõ tìm mã đơn hàng (Ví dụ: 5151, 8333...):",
             options=sorted_order_keys,
             format_func=format_order_item,
-            index=default_idx if sorted_order_keys else None,
-            help="Hệ thống gắn nhãn 🟢 [ĐỦ 100% MÃ] cho các đơn sẵn sàng chạy ngay kèm số lượng tối đa."
+            index=default_idx if sorted_order_keys else None
         )
-        
     with col_input2:
-        # Ô nhập số lượng bằng tay (KHÔNG có nút tăng giảm +/-)
         qty_input_str = st.text_input(
             "2. Nhập số lượng cần chạy (bộ):",
             value=st.session_state.get('quick_selected_qty', "100"),
-            placeholder="Nhập số lượng (Ví dụ: 100)...",
-            help="Nhập số lượng nguyên đơn bằng tay. Hệ thống tự động nhân với định mức cả Trái và Phải."
+            placeholder="Nhập số lượng..."
         )
-        
     with col_input3:
-        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True, help="Đưa đơn hàng và số lượng đã nhập vào bảng chờ đối soát FIFO")
+        can_queue = user_permissions.get('can_manage_queue', False)
+        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True, disabled=not can_queue)
 
-    # Hiển thị thông tin tóm tắt đơn đã chọn
+    if not can_queue:
+        st.caption("🔒 *Tài khoản của bạn chỉ có quyền Xem (Viewer) hoặc Thủ kho, không được chỉnh sửa hàng chờ.*")
+
     if selected_code:
-        curr_order_id = selected_code
-        curr_info = orders_info.get(curr_order_id, {})
-        # Kiểm tra xem đơn này có nằm trong danh sách đủ mã không
-        ready_match = ready_orders_dict.get(curr_order_id)
+        curr_info = orders_info.get(selected_code, {})
+        ready_match = ready_orders_dict.get(selected_code)
         if ready_match:
             ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
-            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Vướng linh kiện có SL ít nhất: <b>{ready_match['bottleneck_desc']}</b> (Tồn kho còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
+            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Điểm nghẽn: <b>{ready_match['bottleneck_desc']}</b> (Còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
         else:
             ready_badge_str = "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
             bottleneck_str = ""
-        
         st.markdown(
-            f"<div style='background:#F1F5F9; border-radius:10px; padding:12px 16px; font-size:14px; color:#334155; margin-top:10px; border-left:4px solid #2563EB;'>"
-            f"ℹ️ <b>Đơn hàng {curr_order_id}</b>: {curr_info.get('description', '')} | "
-            f"<b>Nguyên đơn</b>: 1 vế Trái + 1 vế Phải | "
-            f"Định mức: <b>{curr_info.get('unique_components', 0)} ITEM CODE</b> | "
-            f"Độ sẵn sàng: {ready_badge_str}"
-            f"{bottleneck_str}"
+            f"<div style='background:#F1F5F9; border-radius:10px; padding:10px 14px; font-size:13.5px; color:#334155; margin-top:8px; border-left:4px solid #2563EB;'>"
+            f"ℹ️ <b>Đơn hàng {selected_code}</b>: {curr_info.get('description', '')} | <b>Nguyên đơn</b>: Trái + Phải | "
+            f"Độ sẵn sàng: {ready_badge_str}{bottleneck_str}"
             f"</div>",
             unsafe_allow_html=True
         )
 
-    # Xử lý khi bấm nút OK
-    if btn_add:
-        clean_qty_val = None
+    # Thêm vào hàng chờ
+    if btn_add and can_queue:
         try:
             val = float(str(qty_input_str).replace(',', '').strip())
-            if val > 0:
-                clean_qty_val = val
+            if val > 0 and selected_code:
+                st.session_state.orders_queue.append({
+                    'id': f"{selected_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
+                    'order_no': selected_code,
+                    'description': orders_info[selected_code]['description'],
+                    'qty': val,
+                    'created_at': datetime.datetime.now().strftime("%H:%M:%S")
+                })
+                storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "ADD_QUEUE", f"Thêm đơn {selected_code} ({val:,g} bộ) vào hàng chờ ({st.session_state.workspace_mode})")
+                st.toast(f"✅ Đã thêm đơn {selected_code} ({val:,g} bộ) vào hàng chờ!", icon="✅")
+                st.rerun()
             else:
                 st.error("⚠️ Số lượng cần chạy phải lớn hơn 0.")
         except ValueError:
-            st.error("⚠️ Vui lòng nhập số lượng hợp lệ (Ví dụ: 100).")
-            
-        if selected_code and clean_qty_val is not None:
-            order_id = selected_code
-            order_desc = orders_info[order_id]['description']
-            timestamp_str = datetime.datetime.now().strftime("%H:%M:%S")
-            
-            # Thêm vào hàng chờ FIFO
-            st.session_state.orders_queue.append({
-                'id': f"{order_id}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                'order_no': order_id,
-                'description': order_desc,
-                'qty': clean_qty_val,
-                'created_at': timestamp_str
-            })
-            save_persisted_queue(st.session_state.orders_queue)
-            st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{clean_qty_val:,g}** bộ) vào hàng chờ đối soát!")
-            st.rerun()
+            st.error("⚠️ Vui lòng nhập số lượng hợp lệ.")
 
-# ==================== KHUNG HÀNG CHỜ TÍNH TOÁN (FIFO) ====================
-st.markdown("### ⏳ Khung ghi nhận hàng chờ tính toán (FIFO)")
-
-if len(st.session_state.orders_queue) == 0:
-    st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng nhập mã đơn hàng (Ví dụ: **8393**, **1009**) và số lượng ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
-else:
-    col_q_left, col_q_right = safe_columns([8, 2], vertical_alignment="center")
-    with col_q_left:
-        st.caption("Nguyên tắc FIFO: Đơn hàng ở hàng trên được ưu tiên trừ tồn kho trước; đơn sau lấy phần tồn kho còn lại.")
-    with col_q_right:
-        if st.button("🗑️ Xóa toàn bộ hàng chờ", type="secondary", use_container_width=True):
-            st.session_state.orders_queue = []
-            save_persisted_queue([])
-            st.rerun()
-            
-    # Thống kê tổng hợp số đơn thực tế đối soát được trong hàng chờ
-    st.markdown(f"""
-    <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 10px 18px; margin-top: 8px; margin-bottom: 12px; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-        <div>
-            <span>🎯 <b>Kết quả đối soát thực tế {len(calculation_results)} đơn hàng trong hàng chờ (FIFO):</b></span>
-            <span style="color: #059669; font-weight: 850; margin-left: 8px; background: #ECFDF5; padding: 3px 10px; border-radius: 6px; border: 1px solid #A7F3D0;">✅ {actual_ok_orders} đơn đủ vật tư (Khả thi chạy)</span>
-            <span style="color: #DC2626; font-weight: 850; margin-left: 6px; background: #FEF2F2; padding: 3px 10px; border-radius: 6px; border: 1px solid #FECACA;">⚠️ {actual_missing_orders} đơn thiếu vật tư</span>
-        </div>
-        <div style="font-size: 12.5px; color: #64748B;">
-            Thứ tự ưu tiên trừ dần tồn kho FIFO từ trên xuống dưới
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-            
-    # Hiển thị hàng chờ dạng bảng trực quan kèm cột đồng bộ tồn kho
-    cols_header = safe_columns([1, 2, 3, 2, 3, 1, 1])
-    cols_header[0].markdown("**Ưu tiên**")
-    cols_header[1].markdown("**Mã đơn**")
-    cols_header[2].markdown("**Tên sản phẩm**")
-    cols_header[3].markdown("**Số lượng đặt**")
-    cols_header[4].markdown("**Đồng bộ tồn kho (Thực tế FIFO)**")
-    cols_header[5].markdown("**Thời gian**")
-    cols_header[6].markdown("**Xóa**")
-    
-    to_delete_idx = None
-    for idx, item in enumerate(st.session_state.orders_queue):
-        c = safe_columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
-        c[0].markdown(f"**#{idx + 1}**")
-        c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
-        item_desc = item.get('description') or orders_info.get(item['order_no'], {}).get('description', f"Sản phẩm đơn {item['order_no']}")
-        c[2].write(item_desc)
-        
-        raw_qty = item.get('qty', 0)
-        try:
-            qty_num = float(raw_qty)
-        except (ValueError, TypeError):
-            qty_num = 0.0
-        qty_left_val = float(item.get('qty_left', qty_num))
-        qty_right_val = float(item.get('qty_right', qty_num))
-        if qty_left_val == qty_right_val:
-            c[3].markdown(f"**{qty_num:,g}** bộ")
-        else:
-            c[3].markdown(f"T: **{qty_left_val:,g}** | P: **{qty_right_val:,g}**")
-        
-        # Lấy kết quả thực tế từ đối soát FIFO đã tính toán
-        if idx < len(calculation_results):
-            res_item = calculation_results[idx]
-            if res_item.get('is_fully_ok', False):
-                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% VẬT TƯ (Thực tế OK)</span>", unsafe_allow_html=True)
-            else:
-                m_count = res_item.get('missing_count', 0)
-                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ THIẾU {m_count} ITEM CODE (FIFO không đủ)</span>", unsafe_allow_html=True)
-        else:
-            c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⏳ Đang đối soát...</span>", unsafe_allow_html=True)
-            
-        time_or_due = item.get('due_date') or item.get('created_at', '')
-        c[5].write(time_or_due)
-        if c[6].button("❌", key=f"del_{item['id']}"):
-            to_delete_idx = idx
-            
-    if to_delete_idx is not None:
-        st.session_state.orders_queue.pop(to_delete_idx)
-        save_persisted_queue(st.session_state.orders_queue)
-        st.rerun()
-
-st.divider()
-
-# ==================== BÁO CÁO TRỰC QUAN NHANH TOÀN BỘ ĐƠN ĐỒNG BỘ ĐỦ MÃ SẴN SÀNG CHẠY ====================
-display_ready_count = actual_ok_orders if len(st.session_state.orders_queue) > 0 else readiness_data['ready_count']
-display_total_context = f"{queue_len} Đơn Hàng Trong Hàng Chờ" if len(st.session_state.orders_queue) > 0 else f"{readiness_data['total_orders']} Đơn Hàng Trong BOM"
-display_percent_context = f"{round(actual_ok_orders / queue_len * 100, 1) if queue_len > 0 else 0}% đơn khả thi chạy" if len(st.session_state.orders_queue) > 0 else f"{readiness_data['ready_percent']}% đơn sẵn sàng chạy"
-display_title = (
-    f"🚀 BÁO CÁO NHANH: {actual_ok_orders} / {queue_len} ĐƠN HÀNG ĐỐI SOÁT ĐỦ VẬT TƯ (FIFO THỰC TẾ)"
-    if len(st.session_state.orders_queue) > 0 else
-    f"🚀 BÁO CÁO NHANH: TOÀN BỘ {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ MÃ ĐỒNG BỘ SẴN SÀNG CHẠY"
-)
-display_subtitle = (
-    f"Kết quả đối soát thực tế: <b>{actual_ok_orders}</b> đơn đủ 100% vật tư / <b>{queue_len}</b> đơn trong hàng chờ | Tự động phân bổ trừ tồn kho FIFO và thông báo chi tiết linh kiện thiếu."
-    if len(st.session_state.orders_queue) > 0 else
-    f"Tổng hợp đầy đủ <b>{readiness_data['ready_count']}</b> đơn hàng đủ 100% Item Code trong kho | Tự động tính sẵn số lượng chạy tối đa theo tồn kho thực tế và thông báo mã hàng vướng giới hạn số lượng ít nhất."
-)
-
-st.markdown(f"""
-<div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 16px; padding: 22px 28px; color: #FFFFFF; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
-        <div>
-            <div style="font-size: 22px; font-weight: 850; display:flex; align-items:center; gap:10px;">
-                {display_title}
-            </div>
-            <div style="font-size: 14.5px; opacity: 0.95; margin-top: 6px;">
-                {display_subtitle}
-            </div>
-        </div>
-        <div style="background: rgba(255,255,255,0.22); padding: 8px 18px; border-radius: 9999px; font-weight: 800; font-size: 14px; border: 1px solid rgba(255,255,255,0.35);">
-            🎯 {display_ready_count} / {display_total_context} ({display_percent_context})
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ==================== ĐỐI SOÁT THEO FILE KẾ HOẠCH SẢN XUẤT (FIFO) ====================
-if df_plan is not None and len(df_plan) > 0:
-    plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
-    current_plan_name_display = active_plan_name or plan_file_display_name or "Kế hoạch.xlsx"
-    st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%); border-radius: 14px; padding: 18px 22px; color: #FFFFFF; margin-bottom: 16px; box-shadow: 0 4px 15px rgba(37, 99, 235, 0.2);">
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-            <div>
-                <div style="font-size: 17px; font-weight: 850; display: flex; align-items: center; gap: 8px;">
-                    <span>📅 ĐỐI SOÁT THEO FILE KẾ HOẠCH SẢN XUẤT ({current_plan_name_display})</span>
-                </div>
-                <div style="font-size: 13.5px; opacity: 0.95; margin-top: 4px;">
-                    Tổng hợp <b>{len(df_plan)} dòng Model</b> (Trái & Phải) tương ứng <b>{len(plan_orders_extracted)} đơn hàng sản xuất</b> | Tự động phân bổ FIFO từ trên xuống dưới, <b>Trái trước - Phải sau</b>.
-                </div>
-            </div>
-            <div style="background: rgba(255,255,255,0.22); padding: 5px 14px; border-radius: 9999px; font-weight: 800; font-size: 13px; border: 1px solid rgba(255,255,255,0.35);">
-                ✨ {len(plan_orders_extracted)} Đơn Trong Kế Hoạch
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    col_plan_load, col_plan_view = safe_columns([6, 4], vertical_alignment="center")
-    with col_plan_load:
-        if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", use_container_width=True, key="btn_load_all_plan", help="Nạp toàn bộ đơn hàng từ File Kế hoạch vào hàng chờ theo đúng thứ tự ưu tiên từ trên xuống dưới."):
-            st.session_state.orders_queue = plan_orders_extracted
-            save_persisted_queue(st.session_state.orders_queue)
-            st.success(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch vào hàng chờ FIFO!")
-            st.rerun()
-    with col_plan_view:
-        with st.popover("📋 Xem trước bảng Model trong File Kế hoạch", use_container_width=True):
-            st.markdown(f"**Danh sách {len(df_plan)} dòng Model trong file {current_plan_name_display}:**")
-            st.dataframe(
-                df_plan[['MODEL', 'Side', 'Order_No', 'Qty', 'Variant', 'Due_Date']].rename(columns={
-                    'MODEL': 'Mã Model',
-                    'Side': 'Vế',
-                    'Order_No': 'Mã đơn',
-                    'Qty': 'Số lượng',
-                    'Variant': 'Phiên bản',
-                    'Due_Date': 'Ngày giao'
-                }),
-                use_container_width=True,
-                height=300
-            )
-    st.markdown("<div style='margin-bottom: 14px;'></div>", unsafe_allow_html=True)
-
-# KHUNG ĐIỀU KHIỂN: LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC (FIFO)
-st.markdown(f"""
-<div style="background: #FFFFFF; border: 2px solid #059669; border-radius: 14px; padding: 18px 22px; margin-bottom: 18px; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.08);">
-    <div style="font-size: 16px; font-weight: 850; color: #064E3B; margin-bottom: 4px; display: flex; align-items: center; gap: 8px;">
-        <span>🎯 LỰA CHỌN ĐƠN ĐỂ ƯU TIÊN CHẠY TRƯỚC VÀO HÀNG CHỜ (FIFO)</span>
-        <span style="font-size: 12px; font-weight: 700; color: #059669; background: #ECFDF5; padding: 3px 10px; border-radius: 9999px; border: 1px solid #A7F3D0;">Tùy chọn đa năng</span>
-    </div>
-    <div style="font-size: 13.5px; color: #475569;">
-        Chọn một hoặc nhiều đơn từ danh sách {readiness_data['ready_count']} đơn đủ mã. Thứ tự bạn chọn trong ô chính là <b>thứ tự ưu tiên trừ tồn kho FIFO</b> trong hàng chờ sản xuất.
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-col_prio_select, col_prio_btn = safe_columns([7, 3], vertical_alignment="bottom")
-
-with col_prio_select:
-    ready_order_choices = [ro['order_no'] for ro in readiness_data['ready_orders']]
-    selected_priority_orders = st.multiselect(
-        "1. Chọn các đơn hàng muốn ưu tiên chạy (thứ tự chọn = thứ tự ưu tiên trừ tồn kho FIFO):",
-        options=ready_order_choices,
-        format_func=lambda code: f"Đơn {code} - {orders_info.get(code, {}).get('description', '')} (Tối đa: {ready_orders_dict.get(code, {}).get('max_runnable_qty', 0):,} pcs)",
-        placeholder="Gõ hoặc chọn các đơn cần chạy (Ví dụ: 5151, 8333, 4151, 1009, 5171...)...",
-        key="multiselect_prio_orders"
-    )
-
-with col_prio_btn:
-    btn_add_prio = st.button(
-        f"🚀 ĐƯA {len(selected_priority_orders)} ĐƠN ĐÃ CHỌN VÀO HÀNG CHỜ" if selected_priority_orders else "🚀 ĐƯA CÁC ĐƠN VÀO HÀNG CHỜ",
-        type="primary",
-        use_container_width=True,
-        disabled=len(selected_priority_orders) == 0,
-        help="Thêm toàn bộ các đơn đã chọn vào hàng chờ FIFO phía trên theo đúng thứ tự ưu tiên đã chọn."
-    )
-
-if btn_add_prio and selected_priority_orders:
-    for code in selected_priority_orders:
-        ro_match = ready_orders_dict.get(code)
-        if ro_match:
-            st.session_state.orders_queue.append({
-                'id': f"{code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                'order_no': code,
-                'description': ro_match['description'],
-                'qty': float(ro_match['max_runnable_qty']),
-                'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-            })
-    save_persisted_queue(st.session_state.orders_queue)
-    st.success(f"✅ Đã thêm {len(selected_priority_orders)} đơn hàng vào hàng chờ ưu tiên sản xuất!")
-    st.rerun()
-
-# Phím tắt thêm nhanh 1 chạm cho các mã đơn phổ biến
-st.markdown("**⚡ Phím tắt thêm nhanh 1 chạm (Tự động nạp SL tối đa vào hàng chờ):**")
-sample_quick_codes = ['5151', '5171', '8333', '4151', '1009', '5804']
-chip_quick_cols = safe_columns(len(sample_quick_codes))
-for idx_c, qc in enumerate(sample_quick_codes):
-    ro_c = ready_orders_dict.get(qc)
-    if ro_c:
-        with chip_quick_cols[idx_c]:
-            if st.button(f"➕ {qc} ({ro_c['max_runnable_qty']:,} pcs)", key=f"fast_chip_{qc}", use_container_width=True, help=f"Thêm ngay đơn {qc} ({ro_c['max_runnable_qty']:,} pcs) vào hàng chờ"):
-                st.session_state.orders_queue.append({
-                    'id': f"{qc}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                    'order_no': qc,
-                    'description': ro_c['description'],
-                    'qty': float(ro_c['max_runnable_qty']),
-                    'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-                })
-                save_persisted_queue(st.session_state.orders_queue)
+    # 2. KHUNG HÀNG CHỜ FIFO
+    st.markdown("---")
+    col_q_title, col_q_clear = safe_columns([8, 2], vertical_alignment="center")
+    with col_q_title:
+        st.markdown(f"### ⏳ Hàng Chờ Tính Toán FIFO ({len(st.session_state.orders_queue)} đơn) - *{workspace_title}*")
+    with col_q_clear:
+        if can_queue and len(st.session_state.orders_queue) > 0:
+            if st.button("🗑️ Xóa hàng chờ", type="secondary", use_container_width=True):
+                st.session_state.orders_queue = []
+                storage_manager.save_queue([], username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "CLEAR_QUEUE", f"Xóa toàn bộ hàng chờ ({st.session_state.workspace_mode})")
                 st.rerun()
 
-st.markdown("<br>", unsafe_allow_html=True)
+    # Nạp từ file kế hoạch nếu có
+    if df_plan is not None and len(df_plan) > 0 and can_queue:
+        plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
+        col_p_btn, col_p_info = safe_columns([6, 4], vertical_alignment="center")
+        with col_p_btn:
+            if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", use_container_width=True):
+                st.session_state.orders_queue = plan_orders_extracted
+                storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "LOAD_PLAN_QUEUE", f"Nạp {len(plan_orders_extracted)} đơn từ Kế hoạch vào hàng chờ ({st.session_state.workspace_mode})")
+                st.toast(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch!", icon="✅")
+                st.rerun()
+        with col_p_info:
+            st.caption(f"File Kế hoạch gồm {len(df_plan)} dòng Model, ghép thành {len(plan_orders_extracted)} đơn sản xuất.")
 
-# Nút tải Excel báo cáo các đơn sẵn sàng & đơn thiếu linh kiện
-col_dl_ready_btn, col_dl_note = safe_columns([5, 5], vertical_alignment="center")
-with col_dl_ready_btn:
-    readiness_key = (readiness_data['ready_count'], readiness_data['not_ready_count'], readiness_data['total_orders'])
-    readiness_excel = get_cached_readiness_excel(readiness_key, readiness_data)
-    st.download_button(
-        label=f"📥 Tải Excel Báo Cáo {readiness_data['ready_count']} Đơn Sẵn Sàng (Kèm Đơn Thiếu Mã)",
-        data=readiness_excel,
-        file_name=f"Bao_Cao_Don_Du_Ma_San_Sang_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        type="primary",
-        use_container_width=True
-    )
-with col_dl_note:
-    st.caption(f"✨ Tải toàn bộ danh sách {readiness_data['ready_count']} đơn đủ mã và {readiness_data['not_ready_count']} đơn thiếu linh kiện về máy (File Excel gồm 2 Sheet phân loại chi tiết).")
+    if len(st.session_state.orders_queue) == 0:
+        st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng chọn mã đơn ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
+    else:
+        # Bảng hiển thị hàng chờ
+        cols_header = safe_columns([1, 2, 3, 2, 3, 1, 1])
+        cols_header[0].markdown("**Ưu tiên**")
+        cols_header[1].markdown("**Mã đơn**")
+        cols_header[2].markdown("**Tên sản phẩm**")
+        cols_header[3].markdown("**Số lượng đặt**")
+        cols_header[4].markdown("**Đồng bộ tồn kho FIFO**")
+        cols_header[5].markdown("**Thời gian**")
+        cols_header[6].markdown("**Xóa**")
 
-# ==================== ẨN TRIỆT ĐỂ 2 BẢNG CHI TIẾT (MẶC ĐỊNH ĐÓNG, KHÔNG MỞ LẠI KHI KHÔNG CÓ YÊU CẦU) ====================
-with st.expander(f"📋 Tra Cứu Chi Tiết Bảng {readiness_data['ready_count']} Đơn Đủ Mã & Danh Sách Đơn Chưa Đủ Mã (Mặc định ẩn - Chỉ mở khi có yêu cầu tra cứu)", expanded=False):
-    col_search, col_sort = safe_columns([7, 3], vertical_alignment="bottom")
-    with col_search:
-        search_ready = st.text_input(
-            f"🔍 Tìm kiếm nhanh trong {readiness_data['ready_count']} đơn (gõ 5151, 8333, tên SP...):",
-            value="",
-            placeholder="Gõ mã đơn hoặc tên sản phẩm...",
-            key="search_ready_input"
-        )
-    with col_sort:
-        sort_option = st.selectbox(
-            f"📊 Sắp xếp danh sách {readiness_data['ready_count']} đơn:",
-            options=[
-                "🔥 SL tối đa chạy được (Cao ➜ Thấp)",
-                "🔢 SL tối đa chạy được (Thấp ➜ Cao)",
-                "🏷️ Mã đơn hàng (A ➜ Z)",
-                "📝 Tên sản phẩm (A ➜ Z)"
-            ],
-            index=0,
-            key="sort_ready_orders_key"
-        )
+        to_delete_idx = None
+        for idx, item in enumerate(st.session_state.orders_queue):
+            c = safe_columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
+            c[0].markdown(f"**#{idx + 1}**")
+            c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
+            c[2].write(item.get('description') or orders_info.get(item['order_no'], {}).get('description', ''))
+            
+            raw_qty = item.get('qty', 0)
+            try: qty_num = float(raw_qty)
+            except Exception: qty_num = 0.0
+            qty_l = float(item.get('qty_left', qty_num))
+            qty_r = float(item.get('qty_right', qty_num))
+            if qty_l == qty_r:
+                c[3].markdown(f"**{qty_num:,g}** bộ")
+            else:
+                c[3].markdown(f"T: **{qty_l:,g}** | P: **{qty_r:,g}**")
 
-    # Lọc và sắp xếp danh sách đơn đủ mã
-    filtered_ready = [
-        ro for ro in readiness_data['ready_orders']
-        if search_ready.strip().lower() in ro['order_no'].lower() or search_ready.strip().lower() in ro['description'].lower()
-    ] if search_ready.strip() else list(readiness_data['ready_orders'])
+            if idx < len(calculation_results):
+                res_item = calculation_results[idx]
+                if res_item.get('is_fully_ok', False):
+                    c[4].markdown("<span class='badge-ok'>✅ ĐỦ 100% VẬT TƯ</span>", unsafe_allow_html=True)
+                else:
+                    m_count = res_item.get('missing_count', 0)
+                    c[4].markdown(f"<span class='badge-missing'>⚠️ THIẾU {m_count} MÃ</span>", unsafe_allow_html=True)
+            else:
+                c[4].markdown("<span>⏳ Đang tính...</span>", unsafe_allow_html=True)
 
-    if "Cao ➜ Thấp" in sort_option:
-        filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=True)
-    elif "Thấp ➜ Cao" in sort_option:
-        filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=False)
-    elif "Mã đơn hàng" in sort_option:
-        filtered_ready.sort(key=lambda x: x['order_no'])
-    elif "Tên sản phẩm" in sort_option:
-        filtered_ready.sort(key=lambda x: x['description'])
+            c[5].write(item.get('due_date') or item.get('created_at', ''))
+            if can_queue:
+                if c[6].button("❌", key=f"del_{item['id']}"):
+                    to_delete_idx = idx
+            else:
+                c[6].write("-")
 
-    tab_r1, tab_r2 = st.tabs([
-        f"✅ Bảng Toàn Bộ Đơn Hàng Đủ Mã Đồng Bộ ({len(filtered_ready)} / {readiness_data['ready_count']} đơn - Sẵn Sàng Chạy)",
-        f"⚠️ Danh Sách Đơn Hàng Chưa Đủ Mã ({readiness_data['not_ready_count']} đơn - Cần Nhập Thêm Linh Kiện)"
-    ])
+        if to_delete_idx is not None:
+            del_item = st.session_state.orders_queue.pop(to_delete_idx)
+            storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+            auth_manager.log_activity(username, "DELETE_QUEUE", f"Xóa đơn {del_item.get('order_no')} khỏi hàng chờ ({st.session_state.workspace_mode})")
+            st.rerun()
 
-    with tab_r1:
-        st.caption(f"Hiển thị danh sách {len(filtered_ready)} đơn hàng đồng bộ đủ 100% linh kiện trong kho (Sẵn sàng chạy):")
+    # 3. KẾT QUẢ ĐỐI SOÁT & XUẤT EXCEL
+    if len(st.session_state.orders_queue) > 0 and calculation_results:
+        st.markdown("---")
+        st.markdown(f"### 📊 Báo Cáo Chi Tiết Đối Soát Từng Đơn ({len(calculation_results)} đơn)")
         
-        # BẢNG GIAO DIỆN CHÍNH: ẨN TOÀN BỘ ĐOẠN COST, CHỈ HIỂN THỊ CÁC THÔNG TIN QUAN TRỌNG NHẤT
-        ready_table_html = """
-        <div style="overflow-x: auto;">
-        <table class="styled-table">
-            <thead>
-                <tr>
-                    <th style="width: 50px; text-align:center;">STT</th>
-                    <th style="width: 130px; text-align:center;">Mã Đơn Hàng</th>
-                    <th>Tên Sản Phẩm (Mô tả nguyên đơn)</th>
-                    <th style="text-align:center; width: 220px; background:#059669; color:#FFFFFF; font-size:15px;">SL TỐI ĐA CHẠY ĐƯỢC</th>
-                    <th style="text-align:center; width: 160px;">Trạng Thái</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        for idx_r, r_item in enumerate(filtered_ready, 1):
-            hover_info = f"Linh kiện vướng SL ít nhất: {r_item['bottleneck_desc']} (Tồn kho còn: {int(r_item['bottleneck_stock']):,} cái)"
-            ready_table_html += f"""
-                <tr class="row-ok">
-                    <td style="text-align:center;"><b>#{idx_r}</b></td>
-                    <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
-                    <td><b>{r_item['description']}</b></td>
-                    <td style="text-align:center; font-size:17px; font-weight:900; color:#059669; background:#ECFDF5;" title="{hover_info}">
-                        <b>{r_item['max_runnable_qty']:,} pcs</b>
-                    </td>
-                    <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
-                </tr>
-            """
-        ready_table_html += """
-            </tbody>
-        </table>
-        </div>
-        """
-        st.markdown(ready_table_html, unsafe_allow_html=True)
-        
-        # Thanh nạp nhanh 1 đơn trực tiếp từ bảng
-        if filtered_ready:
-            col_sel_opt, col_act1, col_act2 = safe_columns([6, 2, 2], vertical_alignment="bottom")
-            with col_sel_opt:
-                ready_opts = [f"{ro['order_no']} - {ro['description']} (Tối đa: {ro['max_runnable_qty']:,} pcs)" for ro in filtered_ready]
-                sel_opt = st.selectbox("⚡ Hoặc chọn 1 đơn bất kỳ từ bảng trên để nạp hoặc chạy ngay:", options=ready_opts, key="sel_ready_fast_table")
-            with col_act1:
-                if st.button("⚡ Nạp lên ô nhập", key="btn_act_load", use_container_width=True):
-                    chosen_code = sel_opt.split(" - ")[0].strip()
-                    chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
-                    if chosen_item:
-                        st.session_state.quick_selected_order = chosen_code
-                        st.session_state.quick_selected_qty = str(int(chosen_item['max_runnable_qty']))
-                        st.rerun()
-            with col_act2:
-                if st.button("➕ Thêm vào hàng chờ", key="btn_act_add", use_container_width=True):
-                    chosen_code = sel_opt.split(" - ")[0].strip()
-                    chosen_item = next((x for x in filtered_ready if x['order_no'] == chosen_code), None)
-                    if chosen_item:
-                        st.session_state.orders_queue.append({
-                            'id': f"{chosen_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
-                            'order_no': chosen_code,
-                            'description': chosen_item['description'],
-                            'qty': float(chosen_item['max_runnable_qty']),
-                            'created_at': datetime.datetime.now().strftime("%H:%M:%S")
-                        })
-                        save_persisted_queue(st.session_state.orders_queue)
-                        st.rerun()
-
-    with tab_r2:
-        st.caption(f"Danh sách {readiness_data['not_ready_count']} đơn hàng chưa thể sản xuất do thiếu linh kiện trong kho:")
-        not_ready_table_html = """
-        <div style="overflow-x: auto;">
-        <table class="styled-table">
-            <thead>
-                <tr>
-                    <th style="width: 50px; text-align:center;">STT</th>
-                    <th style="width: 120px; text-align:center;">Mã Đơn Hàng</th>
-                    <th>Tên Sản Phẩm</th>
-                    <th style="text-align:center; width: 140px;">Tổng Item Code</th>
-                    <th style="text-align:center; width: 140px;">Có Trong Kho</th>
-                    <th style="text-align:center; width: 150px; background:#DC2626; color:#FFFFFF;">Số Mã THIẾU</th>
-                    <th style="text-align:center; width: 140px;">Trạng Thái</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
-        for idx_nr, nr_item in enumerate(readiness_data['not_ready_orders'], 1):
-            not_ready_table_html += f"""
-                <tr class="row-missing">
-                    <td style="text-align:center;"><b>#{idx_nr}</b></td>
-                    <td style="text-align:center;"><span class="badge-order" style="background:#FEE2E2; color:#991B1B; border-color:#FCA5A5;">{nr_item['order_no']}</span></td>
-                    <td>{nr_item['description']}</td>
-                    <td style="text-align:center;">{nr_item['total_components']} mã</td>
-                    <td style="text-align:center;">{nr_item['components_in_stock']} mã</td>
-                    <td style="text-align:center; font-weight:800; color:#DC2626;">Thiếu {nr_item['missing_count']} mã</td>
-                    <td style="text-align:center;"><span class="badge-missing">⚠️ Chưa đủ linh kiện</span></td>
-                </tr>
-            """
-        not_ready_table_html += """
-            </tbody>
-        </table>
-        </div>
-        """
-        st.markdown(not_ready_table_html, unsafe_allow_html=True)
-
-st.divider()
-
-
-# ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
-if len(st.session_state.orders_queue) > 0 and calculation_results:
-    st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
-        
-    # Nút tải file tổng hợp tất cả các đơn
-    col_dl_all, _ = safe_columns([6, 4])
-    with col_dl_all:
+        # Nút xuất toàn bộ Excel
         queue_cache_key = tuple(
             (item.get('id', ''), item['order_no'], item['order_qty'], item.get('ok_count', 0), item.get('missing_count', 0))
             for item in calculation_results
         )
         all_excel_bytes = get_cached_all_excel(queue_cache_key, calculation_results)
         st.download_button(
-            label=f"📥 Tải trọn bộ Excel đối soát ({len(calculation_results)} đơn hàng - mỗi đơn 1 sheet)",
+            label=f"📥 Tải Trọn Bộ Excel Đối Soát ({len(calculation_results)} đơn hàng - mỗi đơn 1 sheet)",
             data=all_excel_bytes,
             file_name=f"Doi_Soat_Tong_Hop_{len(calculation_results)}_Don_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=True
         )
-        
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Hiển thị từng đơn hàng trong danh sách chờ dưới dạng thẻ tóm tắt lớn
-    for r in calculation_results:
-        order_no = r['order_no']
-        order_qty = r['order_qty']
-        is_fully_ok = r.get('is_fully_ok', False)
-        stt = r['stt']
-        
-        status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} ITEM CODE</span>"
-        card_class = "order-card-ok" if is_fully_ok else "order-card-missing"
-        
-        qty_left_val = float(r.get('qty_left', order_qty))
-        qty_right_val = float(r.get('qty_right', order_qty))
-        if qty_left_val == qty_right_val:
-            qty_str = f"<b>{order_qty:,g} bộ</b> (Trái + Phải)"
-        else:
-            qty_str = f"Trái: <b>{qty_left_val:,g}</b> | Phải: <b>{qty_right_val:,g}</b>"
-        due_str = f" | Hạn giao: <b>{r.get('due_date')}</b>" if r.get('due_date') else ""
-        
-        # Thẻ thông tin lớn, rõ ràng cho từng đơn hàng
-        st.markdown(f"""
-        <div class="order-card {card_class}">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                <div>
-                    <span style="font-size: 18px; font-weight: 800; color: #1E3A8A;">Ưu tiên #{stt} - Đơn hàng {order_no}</span>
-                    <span style="font-size: 15px; color: #475569; margin-left: 8px;">({r.get('product_title', '')})</span>
-                    <div style="margin-top: 4px; font-size: 14px; color: #64748B;">
-                        Số lượng đặt: {qty_str}{due_str} | Trạng thái: {status_badge}
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        for r in calculation_results:
+            order_no = r['order_no']
+            order_qty = r['order_qty']
+            is_fully_ok = r.get('is_fully_ok', False)
+            stt = r['stt']
+            status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} ITEM CODE</span>"
+            card_class = "order-card-ok" if is_fully_ok else "order-card-missing"
+            
+            qty_l = float(r.get('qty_left', order_qty))
+            qty_r = float(r.get('qty_right', order_qty))
+            qty_str = f"<b>{order_qty:,g} bộ</b> (Trái + Phải)" if qty_l == qty_r else f"Trái: <b>{qty_l:,g}</b> | Phải: <b>{qty_r:,g}</b>"
+
+            st.markdown(f"""
+            <div class="order-card {card_class}">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <div>
+                        <span style="font-size: 17px; font-weight: 850; color: #1E3A8A;">Ưu tiên #{stt} - Đơn hàng {order_no}</span>
+                        <span style="font-size: 14.5px; color: #475569; margin-left: 6px;">({r.get('product_title', '')})</span>
+                        <div style="margin-top: 3px; font-size: 13.5px; color: #64748B;">
+                            Số lượng: {qty_str} | Trạng thái: {status_badge}
+                        </div>
                     </div>
                 </div>
             </div>
+            """, unsafe_allow_html=True)
+
+            col_ck1, col_ck2 = safe_columns([6, 4], vertical_alignment="center")
+            with col_ck1:
+                k1, k2, k3 = safe_columns(3)
+                k1.metric("Tổng mã LK", f"{r['total_items']} mã")
+                k2.metric("Mã ĐỦ", f"{r['ok_count']} mã")
+                k3.metric("Mã THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
+            with col_ck2:
+                single_cache_key = f"{r.get('id', '')}_{order_no}_{order_qty}_{r.get('ok_count', 0)}_{r.get('missing_count', 0)}"
+                single_excel = get_cached_single_order_excel(single_cache_key, r)
+                st.download_button(
+                    label=f"📥 Tải Excel Đơn {order_no}",
+                    data=single_excel,
+                    file_name=f"Doi_Soat_Don_{order_no}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_single_{r['id']}",
+                    use_container_width=True
+                )
+            st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+
+
+# TAB 2: ĐƠN SẴN SÀNG CHẠY
+with tabs[1]:
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
+        <div style="font-size: 20px; font-weight: 850;">
+            🚀 TỔNG HỢP {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ 100% MÃ ĐỒNG BỘ TRONG KHO
+        </div>
+        <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
+            Hệ thống tự động tính toán số lượng tối đa có thể sản xuất ngay và chỉ rõ linh kiện nghẽn số lượng ít nhất.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Nút tải Excel báo cáo
+    col_dl_r1, col_dl_r2 = safe_columns([5, 5], vertical_alignment="center")
+    with col_dl_r1:
+        readiness_key = (readiness_data['ready_count'], readiness_data['not_ready_count'], readiness_data['total_orders'])
+        readiness_excel = get_cached_readiness_excel(readiness_key, readiness_data)
+        st.download_button(
+            label=f"📥 Tải Báo Cáo Excel {readiness_data['ready_count']} Đơn Đủ Mã (Kèm Đơn Thiếu)",
+            data=readiness_excel,
+            file_name=f"Bao_Cao_Don_Du_Ma_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+    with col_dl_r2:
+        st.caption("File Excel gồm 2 sheet: Đơn đủ mã sẵn sàng chạy và Đơn chưa đủ mã kèm danh mục linh kiện thiếu.")
+
+    # Tìm kiếm & phân trang bảng đơn đủ mã
+    col_s1, col_s2, col_s3 = safe_columns([5, 3, 2], vertical_alignment="bottom")
+    with col_s1:
+        search_ready = st.text_input("🔍 Tìm kiếm đơn hàng:", placeholder="Gõ mã đơn hoặc tên sản phẩm...")
+    with col_s2:
+        sort_mode = st.selectbox("Sắp xếp:", ["🔥 SL chạy tối đa (Giảm dần)", "🔢 SL chạy tối đa (Tăng dần)", "🏷️ Mã đơn (A-Z)"])
+    with col_s3:
+        page_size = st.selectbox("Số dòng / trang:", [15, 25, 50, 100], index=0)
+
+    # Lọc danh sách
+    filtered_ready = list(readiness_data['ready_orders'])
+    if search_ready.strip():
+        kw = search_ready.strip().lower()
+        filtered_ready = [ro for ro in filtered_ready if kw in ro['order_no'].lower() or kw in ro['description'].lower()]
+
+    if "Giảm dần" in sort_mode:
+        filtered_ready.sort(key=lambda x: x['max_runnable_qty'], reverse=True)
+    elif "Tăng dần" in sort_mode:
+        filtered_ready.sort(key=lambda x: x['max_runnable_qty'])
+    else:
+        filtered_ready.sort(key=lambda x: x['order_no'])
+
+    total_pages = max(1, (len(filtered_ready) + page_size - 1) // page_size)
+    if 'ready_page_idx' not in st.session_state:
+        st.session_state.ready_page_idx = 1
+    if st.session_state.ready_page_idx > total_pages:
+        st.session_state.ready_page_idx = 1
+
+    start_idx = (st.session_state.ready_page_idx - 1) * page_size
+    page_items = filtered_ready[start_idx : start_idx + page_size]
+
+    # Bảng HTML hiển thị mượt mà
+    ready_html = """
+    <div style="overflow-x: auto;">
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th style="width: 50px; text-align:center;">STT</th>
+                <th style="width: 120px; text-align:center;">Mã Đơn</th>
+                <th>Tên Sản Phẩm</th>
+                <th style="text-align:center; width: 200px; background:#059669; color:#FFFFFF;">SL TỐI ĐA CHẠY ĐƯỢC</th>
+                <th style="text-align:center; width: 140px;">Trạng Thái</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    for idx_row, r_item in enumerate(page_items, start_idx + 1):
+        hover_info = f"Điểm nghẽn: {r_item['bottleneck_desc']} (Kho còn: {int(r_item['bottleneck_stock']):,} cái)"
+        ready_html += f"""
+            <tr class="row-ok">
+                <td style="text-align:center;"><b>#{idx_row}</b></td>
+                <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
+                <td><b>{r_item['description']}</b></td>
+                <td style="text-align:center; font-size:16px; font-weight:900; color:#059669; background:#ECFDF5;" title="{hover_info}">
+                    {r_item['max_runnable_qty']:,} pcs
+                </td>
+                <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
+            </tr>
+        """
+    ready_html += "</tbody></table></div>"
+    st.markdown(ready_html, unsafe_allow_html=True)
+
+    # Điều khiển phân trang
+    col_p1, col_p2, col_p3 = safe_columns([3, 4, 3], vertical_alignment="center")
+    with col_p1:
+        st.caption(f"Hiển thị {len(page_items)} / {len(filtered_ready)} đơn (Trang {st.session_state.ready_page_idx} / {total_pages})")
+    with col_p2:
+        c_prev, c_txt, c_next = safe_columns([1, 2, 1], vertical_alignment="center")
+        if c_prev.button("◀ Trang trước", disabled=st.session_state.ready_page_idx <= 1, use_container_width=True):
+            st.session_state.ready_page_idx -= 1
+            st.rerun()
+        c_txt.markdown(f"<div style='text-align:center; font-weight:700;'>Trang {st.session_state.ready_page_idx}</div>", unsafe_allow_html=True)
+        if c_next.button("Trang sau ▶", disabled=st.session_state.ready_page_idx >= total_pages, use_container_width=True):
+            st.session_state.ready_page_idx += 1
+            st.rerun()
+
+
+# TAB 3: KIỂM TRA TÍNH TOÀN VẸN & CHÍNH XÁC
+with tabs[2]:
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
+        <div style="font-size: 20px; font-weight: 850;">
+            🔍 KIỂM SOÁT TÍNH CHÍNH XÁC & ĐỐI SOÁT TOÀN VẸN DỮ LIỆU
+        </div>
+        <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
+            Tự động rà soát sai lệch giữa Định mức BOM, File Tồn kho và File Kế hoạch để đảm bảo tính toán luôn chuẩn xác 100%.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    integrity_report = core_engine.check_data_integrity(df_bom, df_stock, df_plan)
+    if integrity_report:
+        c_h1, c_h2, c_h3, c_h4 = safe_columns(4)
+        c_h1.metric("Điểm Sức Khỏe Dữ Liệu", f"{integrity_report['overall_health']}%")
+        c_h2.metric("Mã LK Khớp Trong Kho", f"{integrity_report['matched_comps']} / {integrity_report['total_bom_comps']} mã")
+        c_h3.metric("Mã LK Chưa Có Trong Kho", f"{integrity_report['unmatched_comps_count']} mã", delta=f"-{integrity_report['unmatched_comps_count']}", delta_color="inverse")
+        c_h4.metric("Sai Lệch Kế Hoạch Sản Xuất", f"{integrity_report['plan_issues_count']} đơn")
+
+        st.markdown("---")
+        st.markdown(f"#### ⚠️ 1. Danh sách {integrity_report['unmatched_comps_count']} mã linh kiện trong BOM chưa có trong kho:")
+        st.caption("Các mã linh kiện này xuất hiện trong cấu trúc BOM nhưng hoàn toàn chưa có dòng nào trong file Tồn kho (Stock 61):")
+        if len(integrity_report['df_unmatched_comps']) > 0:
+            st.dataframe(integrity_report['df_unmatched_comps'], use_container_width=True, height=280)
+        else:
+            st.success("✅ Tuyệt vời: 100% linh kiện trong BOM đều tồn tại trong danh mục tồn kho.")
+
+        st.markdown("#### 📅 2. Kiểm tra tính đồng bộ của File Kế hoạch với BOM:")
+        if integrity_report['plan_issues_count'] > 0:
+            st.dataframe(integrity_report['df_plan_issues'], use_container_width=True)
+        else:
+            st.success("✅ 100% các đơn hàng trong File Kế hoạch đều có cấu trúc định mức BOM đầy đủ, sẵn sàng chạy đối soát.")
+
+        st.markdown("#### 📦 3. Kiểm tra các dòng tồn kho âm hoặc bất thường:")
+        if integrity_report['zero_stock_count'] > 0:
+            st.dataframe(integrity_report['df_zero_stock'], use_container_width=True)
+        else:
+            st.success("✅ Dữ liệu số lượng tồn kho hợp lệ, không có mã nào bị âm.")
+
+
+# TAB 4: NHẬT KÝ HOẠT ĐỘNG (AUDIT LOG - ADMIN & PLANNER)
+if user_permissions.get('can_view_audit', False):
+    tab_audit_idx = 3
+    with tabs[tab_audit_idx]:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #0F172A 0%, #334155 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
+            <div style="font-size: 20px; font-weight: 850;">
+                📜 SỔ NHẬT KÝ HOẠT ĐỘNG HỆ THỐNG (AUDIT LOG)
+            </div>
+            <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
+                Theo dõi minh bạch mọi thao tác khi chia sẻ cho nhiều người: Ai đăng nhập, ai nạp file, ai thêm/xóa đơn trong hàng chờ.
+            </div>
         </div>
         """, unsafe_allow_html=True)
+
+        logs = auth_manager.get_audit_logs(limit=200)
+        col_l_filter, col_l_clear = safe_columns([8, 2], vertical_alignment="center")
+        with col_l_filter:
+            st.caption(f"Tổng số bản ghi nhật ký: **{len(logs)}** thao tác gần nhất")
+        with col_l_clear:
+            if user_permissions.get('can_manage_users', False):
+                if st.button("🗑️ Dọn sạch nhật ký", type="secondary", use_container_width=True):
+                    auth_manager.clear_audit_logs(username)
+                    st.rerun()
+
+        if logs:
+            df_logs = pd.DataFrame(logs).rename(columns={
+                'timestamp': 'Thời gian',
+                'username': 'Tài khoản',
+                'action': 'Hành động',
+                'details': 'Chi tiết thao tác'
+            })
+            st.dataframe(df_logs, use_container_width=True, height=400)
+        else:
+            st.info("Chưa có nhật ký hoạt động nào được ghi nhận.")
+
+
+# TAB 5: QUẢN LÝ NGƯỜI DÙNG & PHÂN QUYỀN (CHỈ ADMIN)
+if user_permissions.get('can_manage_users', False):
+    tab_user_idx = len(tabs_list) - 1
+    with tabs[tab_user_idx]:
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #7F1D1D 0%, #DC2626 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
+            <div style="font-size: 20px; font-weight: 850;">
+                🛡️ QUẢN TRỊ TÀI KHOẢN & PHÂN QUYỀN TRUY CẬP (RBAC)
+            </div>
+            <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
+                Quản lý danh sách người dùng, cấp quyền truy cập, đặt lại mật khẩu và khóa tài khoản khi chia sẻ app cho nhà máy.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        all_users = auth_manager.get_all_users()
         
-        # Hàng nút tải Excel và KPI nhanh của đơn
-        col_card_kpi, col_card_dl = safe_columns([6, 4], vertical_alignment="center")
-        with col_card_kpi:
-            k1, k2, k3 = safe_columns(3)
-            with k1:
-                st.metric("Tổng Item Code", f"{r['total_items']} mã")
-            with k2:
-                st.metric("Item Code ĐỦ", f"{r['ok_count']} mã", delta=None)
-            with k3:
-                st.metric("Item Code THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
-        with col_card_dl:
-            single_cache_key = f"{r.get('id', '')}_{order_no}_{order_qty}_{r.get('ok_count', 0)}_{r.get('missing_count', 0)}"
-            single_excel = get_cached_single_order_excel(single_cache_key, r)
-            st.download_button(
-                label=f"📥 Tải File Đối Soát Excel Đơn {order_no}",
-                data=single_excel,
-                file_name=f"Doi_Soat_Don_{order_no}_SL{int(order_qty)}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_single_{r['id']}",
-                use_container_width=True
-            )
-            
-        st.markdown("<hr style='margin: 16px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
+        # Danh sách người dùng hiện có
+        st.markdown("#### 👥 Danh sách tài khoản hệ thống:")
+        user_rows = []
+        for uname_k, uval in all_users.items():
+            role_info = auth_manager.ROLES_METADATA.get(uval['role'], {})
+            user_rows.append({
+                'Tên đăng nhập': uname_k,
+                'Họ và tên': uval.get('full_name', ''),
+                'Vai trò': role_info.get('name', uval['role']),
+                'Bộ phận': uval.get('department', ''),
+                'Trạng thái': '🟢 Đang hoạt động' if uval.get('is_active', True) else '🔴 Đã khóa',
+                'Đăng nhập cuối': uval.get('last_login') or 'Chưa đăng nhập'
+            })
+        st.dataframe(pd.DataFrame(user_rows), use_container_width=True)
+
+        st.markdown("---")
+        col_u1, col_u2 = safe_columns(2)
+        
+        # Form thêm tài khoản mới
+        with col_u1:
+            st.markdown("##### ➕ Thêm tài khoản người dùng mới:")
+            with st.form("form_create_user"):
+                new_uname = st.text_input("Tên đăng nhập (viết liền không dấu):", placeholder="ví dụ: tranvanb")
+                new_pw = st.text_input("Mật khẩu ban đầu:", type="password", placeholder="Tối thiểu 4 ký tự")
+                new_fname = st.text_input("Họ và tên:", placeholder="Ví dụ: Trần Văn B")
+                new_dept = st.text_input("Bộ phận / Phòng ban:", placeholder="Ví dụ: Xưởng Lắp Ráp 1")
+                new_role = st.selectbox(
+                    "Vai trò & Quyền hạn:",
+                    options=list(auth_manager.ROLES_METADATA.keys()),
+                    format_func=lambda r: auth_manager.ROLES_METADATA[r]['name']
+                )
+                btn_create = st.form_submit_button("Tạo Tài Khoản", type="primary", use_container_width=True)
+                if btn_create:
+                    c_ok, c_msg = auth_manager.create_user(username, new_uname, new_pw, new_fname, new_role, new_dept)
+                    if c_ok:
+                        st.success(c_msg)
+                        st.rerun()
+                    else:
+                        st.error(c_msg)
+
+        # Form quản lý tài khoản hiện có
+        with col_u2:
+            st.markdown("##### ⚙️ Điều chỉnh tài khoản & Đặt lại mật khẩu:")
+            target_user_opt = [u for u in all_users.keys() if u != 'admin']
+            if target_user_opt:
+                selected_target = st.selectbox("Chọn tài khoản cần thao tác:", options=target_user_opt)
+                target_user_data = all_users[selected_target]
+                
+                # Đổi vai trò
+                col_r_sel, col_r_btn = safe_columns([7, 3], vertical_alignment="bottom")
+                with col_r_sel:
+                    current_r_idx = list(auth_manager.ROLES_METADATA.keys()).index(target_user_data['role'])
+                    new_assigned_role = st.selectbox(
+                        "Đổi vai trò:",
+                        options=list(auth_manager.ROLES_METADATA.keys()),
+                        format_func=lambda r: auth_manager.ROLES_METADATA[r]['name'],
+                        index=current_r_idx,
+                        key="sel_new_assigned_role"
+                    )
+                with col_r_btn:
+                    if st.button("Cập nhật quyền", key="btn_update_r", use_container_width=True):
+                        u_ok, u_msg = auth_manager.update_user_role(username, selected_target, new_assigned_role)
+                        if u_ok:
+                            st.success(u_msg)
+                            st.rerun()
+                        else:
+                            st.error(u_msg)
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                # Đặt lại mật khẩu
+                col_pw_in, col_pw_btn = safe_columns([7, 3], vertical_alignment="bottom")
+                with col_pw_in:
+                    reset_pw_val = st.text_input(f"Đặt lại mật khẩu cho {selected_target}:", type="password", key="inp_reset_pw")
+                with col_pw_btn:
+                    if st.button("Đặt lại MK", key="btn_reset_pw", use_container_width=True):
+                        p_ok, p_msg = auth_manager.reset_user_password(username, selected_target, reset_pw_val)
+                        if p_ok:
+                            st.success(p_msg)
+                        else:
+                            st.error(p_msg)
+
+                # Khóa / Mở khóa
+                is_target_active = target_user_data.get('is_active', True)
+                toggle_btn_label = "🔒 Khóa tài khoản này" if is_target_active else "🔓 Mở khóa tài khoản này"
+                if st.button(toggle_btn_label, key="btn_toggle_active", use_container_width=True):
+                    t_ok, t_msg = auth_manager.toggle_user_active(username, selected_target)
+                    if t_ok:
+                        st.success(t_msg)
+                        st.rerun()
+                    else:
+                        st.error(t_msg)
+            else:
+                st.info("Chưa có tài khoản phụ nào ngoài Admin.")
 
 
 if __name__ == "__main__":
@@ -1422,4 +1497,3 @@ if __name__ == "__main__":
         from streamlit.web import cli as stcli
         sys.argv = ["streamlit", "run", __file__]
         sys.exit(stcli.main())
-

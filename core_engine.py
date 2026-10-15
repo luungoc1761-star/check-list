@@ -18,6 +18,14 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 
+def normalize_code(val):
+    """Chuẩn hóa mã linh kiện / sản phẩm: loại bỏ khoảng trắng ẩn, non-breaking space, và ký tự thừa."""
+    if val is None:
+        return ""
+    s = str(val).strip().replace('\u00A0', '').replace('\ufeff', '')
+    return s
+
+
 def clean_order_title(desc, order_no=""):
     """
     Loại bỏ các từ chỉ vế Trái / Phải (LHF, RHF, LEFT, RIGHT, Side Assy, Side...)
@@ -107,7 +115,7 @@ def load_plan_data(file_source):
         raise ValueError('Không tìm thấy cột MODEL hoặc Qty trong file Kế hoạch.')
         
     df = df[pd.notna(df['MODEL']) & pd.notna(df['Qty'])].copy()
-    df['MODEL'] = df['MODEL'].astype(str).str.strip()
+    df['MODEL'] = df['MODEL'].apply(normalize_code)
     df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
     df = df[df['Qty'] > 0].copy()
     
@@ -214,8 +222,8 @@ def load_bom_data(file_source):
     df = df.rename(columns=col_map)
     df = df[pd.notna(df['Product_Code']) & pd.notna(df['Component_Code'])].copy()
     
-    df['Product_Code'] = df['Product_Code'].astype(str).str.strip()
-    df['Component_Code'] = df['Component_Code'].astype(str).str.strip()
+    df['Product_Code'] = df['Product_Code'].apply(normalize_code)
+    df['Component_Code'] = df['Component_Code'].apply(normalize_code)
     df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
     
     if 'Product_Desc' not in df.columns:
@@ -295,7 +303,7 @@ def load_stock_data(file_source):
         raise ValueError("Không tìm thấy cột Số lượng (Qty) trong file tồn kho.")
         
     df = df[pd.notna(df['Stock_Code'])].copy()
-    df['Stock_Code'] = df['Stock_Code'].astype(str).str.strip()
+    df['Stock_Code'] = df['Stock_Code'].apply(normalize_code)
     df = df[~df['Stock_Code'].str.lower().isin(['', 'nan', 'none'])].copy()
     
     df['Qty'] = pd.to_numeric(df['Qty'], errors='coerce').fillna(0)
@@ -1112,4 +1120,107 @@ def export_readiness_report_to_excel(readiness_data):
     wb.save(out)
     out.seek(0)
     return out.getvalue()
+
+
+def check_data_integrity(df_bom, df_stock, df_plan=None):
+    """
+    Kiểm tra toàn diện tính toàn vẹn và độ chính xác của dữ liệu:
+    1. Linh kiện trong BOM thiếu trong Stock (chưa bao giờ nhập kho).
+    2. Linh kiện trong Stock có tồn kho <= 0 hoặc bất thường.
+    3. Mã đơn hàng trong Kế hoạch có trong BOM không.
+    4. Các đơn hàng trong BOM chỉ có 1 vế (không đủ Trái/Phải).
+    5. Đánh giá chỉ số sức khỏe dữ liệu (Health Score %).
+    """
+    if df_bom is None or df_stock is None:
+        return None
+        
+    bom_comps = df_bom[['Component_Code', 'Component_Desc']].drop_duplicates()
+    stock_summary = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
+    all_stock_codes = set(stock_summary.keys())
+    
+    # 1. Linh kiện trong BOM hoàn toàn không có trong Stock
+    missing_in_stock = []
+    for _, row in bom_comps.iterrows():
+        c_code = row['Component_Code']
+        if c_code not in all_stock_codes:
+            orders_used = sorted(df_bom[df_bom['Component_Code'] == c_code]['Order_No'].unique().tolist())
+            orders_sample = ', '.join(orders_used[:6]) + (f' (+{len(orders_used)-6} đơn khác)' if len(orders_used) > 6 else '')
+            missing_in_stock.append({
+                'Mã linh kiện (ITEM CODE)': c_code,
+                'Tên mô tả': row['Component_Desc'],
+                'Số đơn BOM bị ảnh hưởng': len(orders_used),
+                'Mẫu các đơn ảnh hưởng': orders_sample
+            })
+    df_missing_comps = pd.DataFrame(missing_in_stock)
+    if len(df_missing_comps) > 0:
+        df_missing_comps = df_missing_comps.sort_values(by='Số đơn BOM bị ảnh hưởng', ascending=False).reset_index(drop=True)
+        
+    # 2. Linh kiện trong Stock có số lượng <= 0
+    zero_stock = []
+    for scode, qty in stock_summary.items():
+        if qty <= 0:
+            zero_stock.append({
+                'Mã linh kiện (ITEM CODE)': scode,
+                'Số lượng tồn': qty,
+                'Đánh giá': 'Cảnh báo: Tồn kho <= 0'
+            })
+    df_zero_stock = pd.DataFrame(zero_stock)
+    
+    # 3. Kiểm tra đơn hàng trong Kế hoạch
+    plan_issues = []
+    if df_plan is not None and len(df_plan) > 0:
+        bom_orders_set = set(df_bom['Order_No'].unique())
+        plan_orders = df_plan[['Order_No', 'MODEL', 'Qty']].drop_duplicates()
+        for _, prow in plan_orders.iterrows():
+            p_ord = prow['Order_No']
+            if p_ord not in bom_orders_set:
+                plan_issues.append({
+                    'Mã đơn trong Kế hoạch': p_ord,
+                    'Mã MODEL': prow['MODEL'],
+                    'Số lượng': prow['Qty'],
+                    'Nguyên nhân': 'Chưa khai báo cấu trúc BOM cho mã đơn này'
+                })
+    df_plan_issues = pd.DataFrame(plan_issues)
+    
+    # 4. Đơn hàng chỉ có 1 vế trong BOM
+    orders_info = get_available_orders_info(df_bom)
+    single_sided = []
+    for ord_no, info in orders_info.items():
+        if not info['has_both_sides']:
+            single_sided.append({
+                'Mã đơn hàng': ord_no,
+                'Tên sản phẩm': info['description'],
+                'Vế hiện có': ', '.join(info['sides']),
+                'Ghi chú': 'Chỉ có 1 vế (Chưa đủ bộ nguyên đơn Trái + Phải)'
+            })
+    df_single_sided = pd.DataFrame(single_sided)
+    
+    # Tính điểm sức khỏe dữ liệu
+    total_bom_comps_count = len(bom_comps)
+    matched_comps_count = total_bom_comps_count - len(df_missing_comps)
+    comp_match_pct = (matched_comps_count / total_bom_comps_count * 100) if total_bom_comps_count > 0 else 0
+    
+    total_orders_count = len(orders_info)
+    complete_orders_count = total_orders_count - len(df_single_sided)
+    order_health_pct = (complete_orders_count / total_orders_count * 100) if total_orders_count > 0 else 0
+    
+    overall_health = round((comp_match_pct * 0.7 + order_health_pct * 0.3), 1)
+    
+    return {
+        'total_bom_comps': total_bom_comps_count,
+        'matched_comps': matched_comps_count,
+        'unmatched_comps_count': len(df_missing_comps),
+        'df_unmatched_comps': df_missing_comps,
+        'total_stock_items': len(all_stock_codes),
+        'zero_stock_count': len(df_zero_stock),
+        'df_zero_stock': df_zero_stock,
+        'plan_issues_count': len(df_plan_issues),
+        'df_plan_issues': df_plan_issues,
+        'single_sided_count': len(df_single_sided),
+        'df_single_sided': df_single_sided,
+        'comp_match_pct': round(comp_match_pct, 1),
+        'order_health_pct': round(order_health_pct, 1),
+        'overall_health': overall_health
+    }
+
 
