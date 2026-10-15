@@ -1,5 +1,6 @@
 import datetime
 import io
+import json
 import os
 import uuid
 import streamlit as st
@@ -382,17 +383,77 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== SESSION STATE ====================
+# ==================== LƯU TRỮ KIÊN CỐ & SESSION STATE (KHÔNG MẤT KHI REFRESH) ====================
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_PERSIST_DIR = os.path.join(APP_DIR, ".persistent_data")
+os.makedirs(DATA_PERSIST_DIR, exist_ok=True)
+STOCK_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_stock.xlsx")
+BOM_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "custom_bom.xlsx")
+META_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "metadata.json")
+QUEUE_PERSIST_FILE = os.path.join(DATA_PERSIST_DIR, "orders_queue.json")
+
+def load_meta():
+    if os.path.exists(META_PERSIST_FILE):
+        try:
+            with open(META_PERSIST_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_meta(meta_dict):
+    try:
+        with open(META_PERSIST_FILE, 'w', encoding='utf-8') as f:
+            json.dump(meta_dict, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+def load_persisted_queue():
+    if os.path.exists(QUEUE_PERSIST_FILE):
+        try:
+            with open(QUEUE_PERSIST_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+        except Exception:
+            pass
+    return []
+
+def save_persisted_queue(queue):
+    try:
+        with open(QUEUE_PERSIST_FILE, 'w', encoding='utf-8') as f:
+            json.dump(queue, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+meta = load_meta()
+
 if 'orders_queue' not in st.session_state:
-    st.session_state.orders_queue = []
+    st.session_state.orders_queue = load_persisted_queue()
 if 'custom_bom_bytes' not in st.session_state:
-    st.session_state.custom_bom_bytes = None
-if 'custom_bom_name' not in st.session_state:
-    st.session_state.custom_bom_name = None
+    if os.path.exists(BOM_PERSIST_FILE):
+        try:
+            with open(BOM_PERSIST_FILE, 'rb') as f:
+                st.session_state.custom_bom_bytes = f.read()
+            st.session_state.custom_bom_name = meta.get('bom_name', os.path.basename(BOM_PERSIST_FILE))
+        except Exception:
+            st.session_state.custom_bom_bytes = None
+            st.session_state.custom_bom_name = None
+    else:
+        st.session_state.custom_bom_bytes = None
+        st.session_state.custom_bom_name = None
 if 'custom_stock_bytes' not in st.session_state:
-    st.session_state.custom_stock_bytes = None
-if 'custom_stock_name' not in st.session_state:
-    st.session_state.custom_stock_name = None
+    if os.path.exists(STOCK_PERSIST_FILE):
+        try:
+            with open(STOCK_PERSIST_FILE, 'rb') as f:
+                st.session_state.custom_stock_bytes = f.read()
+            st.session_state.custom_stock_name = meta.get('stock_name', os.path.basename(STOCK_PERSIST_FILE))
+        except Exception:
+            st.session_state.custom_stock_bytes = None
+            st.session_state.custom_stock_name = None
+    else:
+        st.session_state.custom_stock_bytes = None
+        st.session_state.custom_stock_name = None
 if 'quick_selected_order' not in st.session_state:
     st.session_state.quick_selected_order = "8393"
 if 'quick_selected_qty' not in st.session_state:
@@ -483,8 +544,19 @@ with st.sidebar:
         help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
     )
     if uploaded_stock is not None:
-        st.session_state.custom_stock_bytes = uploaded_stock.getvalue()
-        st.session_state.custom_stock_name = uploaded_stock.name
+        stock_bytes_val = uploaded_stock.getvalue()
+        if (st.session_state.custom_stock_bytes != stock_bytes_val) or (st.session_state.custom_stock_name != uploaded_stock.name):
+            st.session_state.custom_stock_bytes = stock_bytes_val
+            st.session_state.custom_stock_name = uploaded_stock.name
+            try:
+                with open(STOCK_PERSIST_FILE, 'wb') as f:
+                    f.write(stock_bytes_val)
+                meta['stock_name'] = uploaded_stock.name
+                save_meta(meta)
+            except Exception:
+                pass
+            st.cache_data.clear()
+            st.rerun()
         
     st.divider()
     
@@ -497,8 +569,19 @@ with st.sidebar:
         help="Cột quan trọng: Product Code, Component Code, Qty"
     )
     if uploaded_bom is not None:
-        st.session_state.custom_bom_bytes = uploaded_bom.getvalue()
-        st.session_state.custom_bom_name = uploaded_bom.name
+        bom_bytes_val = uploaded_bom.getvalue()
+        if (st.session_state.custom_bom_bytes != bom_bytes_val) or (st.session_state.custom_bom_name != uploaded_bom.name):
+            st.session_state.custom_bom_bytes = bom_bytes_val
+            st.session_state.custom_bom_name = uploaded_bom.name
+            try:
+                with open(BOM_PERSIST_FILE, 'wb') as f:
+                    f.write(bom_bytes_val)
+                meta['bom_name'] = uploaded_bom.name
+                save_meta(meta)
+            except Exception:
+                pass
+            st.cache_data.clear()
+            st.rerun()
 
 # Xác định nguồn dữ liệu ưu tiên: File upload trực tiếp > File đã lưu session
 active_stock_bytes = st.session_state.custom_stock_bytes
@@ -540,12 +623,23 @@ with st.sidebar:
     st.divider()
     
     # Nút reset về file gốc
-    if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes:
+    if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE):
         if st.button("🔄 Khôi phục 2 file mẫu mặc định", use_container_width=True):
             st.session_state.custom_bom_bytes = None
             st.session_state.custom_bom_name = None
             st.session_state.custom_stock_bytes = None
             st.session_state.custom_stock_name = None
+            st.session_state.orders_queue = []
+            if os.path.exists(STOCK_PERSIST_FILE):
+                try: os.remove(STOCK_PERSIST_FILE)
+                except Exception: pass
+            if os.path.exists(BOM_PERSIST_FILE):
+                try: os.remove(BOM_PERSIST_FILE)
+                except Exception: pass
+            if os.path.exists(META_PERSIST_FILE):
+                try: os.remove(META_PERSIST_FILE)
+                except Exception: pass
+            save_persisted_queue([])
             st.cache_data.clear()
             st.success("Đã khôi phục dữ liệu mẫu!")
             st.rerun()
@@ -608,13 +702,22 @@ with col_m1:
     </div>
     """, unsafe_allow_html=True)
 with col_m2:
-    st.markdown(f"""
-    <div class="kpi-card kpi-card-border-emerald">
-        <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
-        <div class="kpi-value" style="color:#059669;">{readiness_data['ready_count']}<span class="kpi-unit" style="color:#059669;">/ {readiness_data['total_orders']}</span></div>
-        <div style="font-size:12px; font-weight:700; color:#059669; margin-top:2px;">✨ {readiness_data['ready_percent']}% đơn sẵn sàng chạy</div>
-    </div>
-    """, unsafe_allow_html=True)
+    if len(st.session_state.orders_queue) > 0:
+        st.markdown(f"""
+        <div class="kpi-card kpi-card-border-emerald">
+            <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
+            <div class="kpi-value" style="color:#059669;">{actual_ok_orders}<span class="kpi-unit" style="color:#059669;">/ {queue_len} đơn</span></div>
+            <div style="font-size:12px; font-weight:700; color:#059669; margin-top:2px;">✨ {actual_ok_orders} đơn thực tế đối soát OK (Khả thi chạy)</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="kpi-card kpi-card-border-emerald">
+            <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
+            <div class="kpi-value" style="color:#059669;">{readiness_data['ready_count']}<span class="kpi-unit" style="color:#059669;">/ {readiness_data['total_orders']}</span></div>
+            <div style="font-size:12px; font-weight:700; color:#059669; margin-top:2px;">✨ {readiness_data['ready_percent']}% đơn sẵn sàng chạy</div>
+        </div>
+        """, unsafe_allow_html=True)
 with col_m3:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-green">
@@ -754,6 +857,7 @@ with st.container():
                 'qty': clean_qty_val,
                 'created_at': timestamp_str
             })
+            save_persisted_queue(st.session_state.orders_queue)
             st.success(f"✅ Đã thêm đơn hàng **{order_id}** (Số lượng: **{clean_qty_val:,g}** bộ) vào hàng chờ đối soát!")
             st.rerun()
 
@@ -769,6 +873,7 @@ else:
     with col_q_right:
         if st.button("🗑️ Xóa toàn bộ hàng chờ", type="secondary", use_container_width=True):
             st.session_state.orders_queue = []
+            save_persisted_queue([])
             st.rerun()
             
     # Thống kê tổng hợp số đơn thực tế đối soát được trong hàng chờ
@@ -826,24 +931,39 @@ else:
             
     if to_delete_idx is not None:
         st.session_state.orders_queue.pop(to_delete_idx)
+        save_persisted_queue(st.session_state.orders_queue)
         st.rerun()
 
 st.divider()
 
 # ==================== BÁO CÁO TRỰC QUAN NHANH TOÀN BỘ ĐƠN ĐỒNG BỘ ĐỦ MÃ SẴN SÀNG CHẠY ====================
+display_ready_count = actual_ok_orders if len(st.session_state.orders_queue) > 0 else readiness_data['ready_count']
+display_total_context = f"{queue_len} Đơn Hàng Trong Hàng Chờ" if len(st.session_state.orders_queue) > 0 else f"{readiness_data['total_orders']} Đơn Hàng Trong BOM"
+display_percent_context = f"{round(actual_ok_orders / queue_len * 100, 1) if queue_len > 0 else 0}% đơn khả thi chạy" if len(st.session_state.orders_queue) > 0 else f"{readiness_data['ready_percent']}% đơn sẵn sàng chạy"
+display_title = (
+    f"🚀 BÁO CÁO NHANH: {actual_ok_orders} / {queue_len} ĐƠN HÀNG ĐỐI SOÁT ĐỦ VẬT TƯ (FIFO THỰC TẾ)"
+    if len(st.session_state.orders_queue) > 0 else
+    f"🚀 BÁO CÁO NHANH: TOÀN BỘ {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ MÃ ĐỒNG BỘ SẴN SÀNG CHẠY"
+)
+display_subtitle = (
+    f"Kết quả đối soát thực tế: <b>{actual_ok_orders}</b> đơn đủ 100% vật tư / <b>{queue_len}</b> đơn trong hàng chờ | Tự động phân bổ trừ tồn kho FIFO và thông báo chi tiết linh kiện thiếu."
+    if len(st.session_state.orders_queue) > 0 else
+    f"Tổng hợp đầy đủ <b>{readiness_data['ready_count']}</b> đơn hàng đủ 100% Item Code trong kho | Tự động tính sẵn số lượng chạy tối đa theo tồn kho thực tế và thông báo mã hàng vướng giới hạn số lượng ít nhất."
+)
+
 st.markdown(f"""
 <div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 16px; padding: 22px 28px; color: #FFFFFF; margin-top: 10px; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(5, 150, 105, 0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
         <div>
             <div style="font-size: 22px; font-weight: 850; display:flex; align-items:center; gap:10px;">
-                🚀 BÁO CÁO NHANH: TOÀN BỘ {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ MÃ ĐỒNG BỘ SẴN SÀNG CHẠY
+                {display_title}
             </div>
             <div style="font-size: 14.5px; opacity: 0.95; margin-top: 6px;">
-                Tổng hợp đầy đủ <b>{readiness_data['ready_count']}</b> đơn hàng đủ 100% Item Code trong kho | Tự động tính sẵn số lượng chạy tối đa theo tồn kho thực tế và thông báo mã hàng vướng giới hạn số lượng ít nhất.
+                {display_subtitle}
             </div>
         </div>
         <div style="background: rgba(255,255,255,0.22); padding: 8px 18px; border-radius: 9999px; font-weight: 800; font-size: 14px; border: 1px solid rgba(255,255,255,0.35);">
-            🎯 {readiness_data['ready_count']} / {readiness_data['total_orders']} Đơn Hàng Sẵn Sàng ({readiness_data['ready_percent']}%)
+            🎯 {display_ready_count} / {display_total_context} ({display_percent_context})
         </div>
     </div>
 </div>
@@ -894,6 +1014,7 @@ if btn_add_prio and selected_priority_orders:
                 'qty': float(ro_match['max_runnable_qty']),
                 'created_at': datetime.datetime.now().strftime("%H:%M:%S")
             })
+    save_persisted_queue(st.session_state.orders_queue)
     st.success(f"✅ Đã thêm {len(selected_priority_orders)} đơn hàng vào hàng chờ ưu tiên sản xuất!")
     st.rerun()
 
@@ -913,6 +1034,7 @@ for idx_c, qc in enumerate(sample_quick_codes):
                     'qty': float(ro_c['max_runnable_qty']),
                     'created_at': datetime.datetime.now().strftime("%H:%M:%S")
                 })
+                save_persisted_queue(st.session_state.orders_queue)
                 st.rerun()
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -1040,6 +1162,7 @@ with st.expander(f"📋 Tra Cứu Chi Tiết Bảng {readiness_data['ready_count
                             'qty': float(chosen_item['max_runnable_qty']),
                             'created_at': datetime.datetime.now().strftime("%H:%M:%S")
                         })
+                        save_persisted_queue(st.session_state.orders_queue)
                         st.rerun()
 
     with tab_r2:
