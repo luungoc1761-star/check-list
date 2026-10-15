@@ -469,14 +469,6 @@ def get_cached_single_order_excel(cache_key, _order_result):
 def get_cached_all_excel(cache_key, _calculation_results):
     return core_engine.export_all_orders_to_excel(_calculation_results)
 
-# Tải dữ liệu
-df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
-    st.session_state.custom_bom_bytes,
-    st.session_state.custom_bom_name,
-    st.session_state.custom_stock_bytes,
-    st.session_state.custom_stock_name
-)
-
 # ==================== SIDEBAR QUẢN LÝ DỮ LIỆU (LUÔN HIỂN THỊ) ====================
 with st.sidebar:
     st.markdown("### ⚙️ Dữ Liệu Nguồn")
@@ -491,27 +483,8 @@ with st.sidebar:
         help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
     )
     if uploaded_stock is not None:
-        if st.session_state.custom_stock_name != uploaded_stock.name:
-            st.session_state.custom_stock_bytes = uploaded_stock.getvalue()
-            st.session_state.custom_stock_name = uploaded_stock.name
-            st.cache_data.clear()
-            st.success(f"Đã nạp file tồn kho: {uploaded_stock.name}")
-            st.rerun()
-            
-    default_stock_path = (
-        find_data_file(['stock', '61']) 
-        or find_data_file(['stock', 'balance']) 
-        or find_data_file(['stock'])
-    )
-    default_stock_label = (
-        f"{os.path.basename(default_stock_path)} (Mặc định)"
-        if default_stock_path else "Stock 61.xlsx (Mặc định)"
-    )
-    current_stock_name = st.session_state.custom_stock_name or default_stock_label
-    if df_stock is not None:
-        st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
-    else:
-        st.caption(f"📁 **{current_stock_name}** (Chưa nạp được dữ liệu)")
+        st.session_state.custom_stock_bytes = uploaded_stock.getvalue()
+        st.session_state.custom_stock_name = uploaded_stock.name
         
     st.divider()
     
@@ -524,14 +497,41 @@ with st.sidebar:
         help="Cột quan trọng: Product Code, Component Code, Qty"
     )
     if uploaded_bom is not None:
-        if st.session_state.custom_bom_name != uploaded_bom.name:
-            st.session_state.custom_bom_bytes = uploaded_bom.getvalue()
-            st.session_state.custom_bom_name = uploaded_bom.name
-            st.cache_data.clear()
-            st.success(f"Đã nạp file BOM: {uploaded_bom.name}")
-            st.rerun()
-            
-    current_bom_name = st.session_state.custom_bom_name or "Production BOM List 10.2.xlsx (Mặc định)"
+        st.session_state.custom_bom_bytes = uploaded_bom.getvalue()
+        st.session_state.custom_bom_name = uploaded_bom.name
+
+# Xác định nguồn dữ liệu ưu tiên: File upload trực tiếp > File đã lưu session
+active_stock_bytes = st.session_state.custom_stock_bytes
+active_stock_name = st.session_state.custom_stock_name
+active_bom_bytes = st.session_state.custom_bom_bytes
+active_bom_name = st.session_state.custom_bom_name
+
+# Tải dữ liệu
+df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
+    active_bom_bytes,
+    active_bom_name,
+    active_stock_bytes,
+    active_stock_name
+)
+
+# Hiển thị thông tin file nạp và điều khiển trên sidebar
+with st.sidebar:
+    default_stock_path = (
+        find_data_file(['stock', '61']) 
+        or find_data_file(['stock', 'balance']) 
+        or find_data_file(['stock'])
+    )
+    default_stock_label = (
+        f"{os.path.basename(default_stock_path)} (Mặc định)"
+        if default_stock_path else "Stock 61.xlsx (Mặc định)"
+    )
+    current_stock_name = active_stock_name or default_stock_label
+    if df_stock is not None:
+        st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
+    else:
+        st.caption(f"📁 **{current_stock_name}** (Chưa nạp được dữ liệu)")
+        
+    current_bom_name = active_bom_name or "Production BOM List 10.2.xlsx (Mặc định)"
     if df_bom is not None:
         st.caption(f"📁 **{current_bom_name}** ({len(df_bom):,} dòng, {len(orders_info):,} đơn hàng)")
     else:
@@ -585,6 +585,19 @@ if df_bom is None or df_stock is None:
     """, unsafe_allow_html=True)
     st.stop()
 
+# ==================== TÍNH TOÁN ĐỐI SOÁT FIFO NGAY ĐỂ ĐỒNG BỘ TOÀN HỆ THỐNG ====================
+calculation_results = []
+actual_ok_orders = 0
+actual_missing_orders = 0
+if len(st.session_state.orders_queue) > 0:
+    calculation_results = core_engine.calculate_inventory_allocation(
+        st.session_state.orders_queue,
+        df_bom,
+        df_stock
+    )
+    actual_ok_orders = sum(1 for r in calculation_results if r.get('is_fully_ok', False))
+    actual_missing_orders = len(calculation_results) - actual_ok_orders
+
 # ==================== CÁC THẺ KPI TO BẢN & SỐNG ĐỘNG (5 THẺ) ====================
 col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
 with col_m1:
@@ -618,10 +631,12 @@ with col_m4:
     """, unsafe_allow_html=True)
 with col_m5:
     queue_len = len(st.session_state.orders_queue)
+    sub_kpi_html = f"""<div style="font-size:12px; font-weight:700; color:{'#059669' if actual_ok_orders > 0 else '#DC2626'}; margin-top:2px;">✨ {actual_ok_orders} / {queue_len} đơn đối soát OK</div>""" if queue_len > 0 else ""
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-amber">
         <div class="kpi-label">⏳ Đơn Trong Hàng Chờ</div>
         <div class="kpi-value">{queue_len}<span class="kpi-unit">đơn</span></div>
+        {sub_kpi_html}
     </div>
     """, unsafe_allow_html=True)
 
@@ -756,13 +771,27 @@ else:
             st.session_state.orders_queue = []
             st.rerun()
             
+    # Thống kê tổng hợp số đơn thực tế đối soát được trong hàng chờ
+    st.markdown(f"""
+    <div style="background: #F8FAFC; border: 1.5px solid #CBD5E1; border-radius: 10px; padding: 10px 18px; margin-top: 8px; margin-bottom: 12px; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div>
+            <span>🎯 <b>Kết quả đối soát thực tế {len(calculation_results)} đơn hàng trong hàng chờ (FIFO):</b></span>
+            <span style="color: #059669; font-weight: 850; margin-left: 8px; background: #ECFDF5; padding: 3px 10px; border-radius: 6px; border: 1px solid #A7F3D0;">✅ {actual_ok_orders} đơn đủ vật tư (Khả thi chạy)</span>
+            <span style="color: #DC2626; font-weight: 850; margin-left: 6px; background: #FEF2F2; padding: 3px 10px; border-radius: 6px; border: 1px solid #FECACA;">⚠️ {actual_missing_orders} đơn thiếu vật tư</span>
+        </div>
+        <div style="font-size: 12.5px; color: #64748B;">
+            Thứ tự ưu tiên trừ dần tồn kho FIFO từ trên xuống dưới
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+            
     # Hiển thị hàng chờ dạng bảng trực quan kèm cột đồng bộ tồn kho
     cols_header = safe_columns([1, 2, 3, 2, 3, 1, 1])
     cols_header[0].markdown("**Ưu tiên**")
     cols_header[1].markdown("**Mã đơn**")
     cols_header[2].markdown("**Tên sản phẩm**")
     cols_header[3].markdown("**Số lượng đặt**")
-    cols_header[4].markdown("**Đồng bộ tồn kho**")
+    cols_header[4].markdown("**Đồng bộ tồn kho (Thực tế FIFO)**")
     cols_header[5].markdown("**Thời gian**")
     cols_header[6].markdown("**Xóa**")
     
@@ -780,18 +809,16 @@ else:
             qty_num = 0.0
         c[3].markdown(f"**{qty_num:,g}** bộ")
         
-        ord_no_str = str(item.get('order_no', '')).strip()
-        ro_match = ready_orders_dict.get(ord_no_str)
-        if ro_match:
-            max_pcs = float(ro_match.get('max_runnable_qty', 0))
-            if qty_num <= max_pcs:
-                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% MÃ (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
+        # Lấy kết quả thực tế từ đối soát FIFO đã tính toán
+        if idx < len(calculation_results):
+            res_item = calculation_results[idx]
+            if res_item.get('is_fully_ok', False):
+                c[4].markdown(f"<span class='badge-ok' style='font-size:12px; font-weight:800;'>✅ ĐỦ 100% VẬT TƯ (Thực tế OK)</span>", unsafe_allow_html=True)
             else:
-                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ VƯỢT TỒN KHO (Tối đa {int(max_pcs):,} pcs)</span>", unsafe_allow_html=True)
+                m_count = res_item.get('missing_count', 0)
+                c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ THIẾU {m_count} ITEM CODE (FIFO không đủ)</span>", unsafe_allow_html=True)
         else:
-            nr_match = not_ready_orders_dict.get(ord_no_str)
-            m_count = nr_match.get('missing_count', 'nhiều') if nr_match else 'nhiều'
-            c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⚠️ THIẾU {m_count} MÃ TRONG KHO</span>", unsafe_allow_html=True)
+            c[4].markdown(f"<span class='badge-missing' style='font-size:12px; font-weight:800;'>⏳ Đang đối soát...</span>", unsafe_allow_html=True)
             
         c[5].write(item.get('created_at', ''))
         if c[6].button("❌", key=f"del_{item['id']}"):
@@ -1056,15 +1083,8 @@ st.divider()
 
 
 # ==================== TÍNH TOÁN SO SÁNH VÀ KẾT QUẢ ====================
-if len(st.session_state.orders_queue) > 0:
+if len(st.session_state.orders_queue) > 0 and calculation_results:
     st.markdown("### 📊 Kết Quả Đối Soát Đơn Hàng (FIFO)")
-    
-    with st.spinner("Đang tính toán phân bổ tồn kho FIFO cho cả Trái & Phải..."):
-        calculation_results = core_engine.calculate_inventory_allocation(
-            st.session_state.orders_queue,
-            df_bom,
-            df_stock
-        )
         
     # Nút tải file tổng hợp tất cả các đơn
     col_dl_all, _ = safe_columns([6, 4])
