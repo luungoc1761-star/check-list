@@ -1053,7 +1053,7 @@ with tabs[0]:
         ready_match = ready_orders_dict.get(selected_code)
         if ready_match:
             ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
-            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Điểm nghẽn: <b>{ready_match['bottleneck_desc']}</b> (Còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
+            bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Điểm nghẽn: <b title='{ready_match['bottleneck_desc']}'>{ready_match['bottleneck_code']}</b> (Còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
         else:
             ready_badge_str = "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
             bottleneck_str = ""
@@ -1335,13 +1335,13 @@ with tabs[1]:
                 <th style="width: 120px; text-align:center;">Mã Đơn</th>
                 <th>Tên Sản Phẩm</th>
                 <th style="text-align:center; width: 200px; background:#059669; color:#FFFFFF;">SL TỐI ĐA CHẠY ĐƯỢC</th>
-                <th style="text-align:center; width: 140px;">Trạng Thái</th>
+                <th style="text-align:center; width: 170px;">Trạng Thái</th>
             </tr>
         </thead>
         <tbody>
     """
     for idx_row, r_item in enumerate(page_items, start_idx + 1):
-        hover_info = f"Điểm nghẽn: {r_item['bottleneck_desc']} (Kho còn: {int(r_item['bottleneck_stock']):,} cái)"
+        hover_info = f"Điểm nghẽn: {r_item['bottleneck_code']} ({r_item['bottleneck_desc']}) - Kho còn: {int(r_item['bottleneck_stock']):,} cái"
         ready_html += f"""
             <tr class="row-ok">
                 <td style="text-align:center;"><b>#{idx_row}</b></td>
@@ -1350,7 +1350,10 @@ with tabs[1]:
                 <td style="text-align:center; font-size:16px; font-weight:900; color:#059669; background:#ECFDF5;" title="{hover_info}">
                     {r_item['max_runnable_qty']:,} pcs
                 </td>
-                <td style="text-align:center;"><span class="badge-ok">✅ ĐỦ 100% MÃ</span></td>
+                <td style="text-align:center;">
+                    <span class="badge-ok">✅ ĐỦ 100% MÃ</span>
+                    <div style="font-size:11.5px; color:#D97706; margin-top:3px; font-weight:700;" title="{r_item['bottleneck_desc']}">⚠️ Nghẽn: <b>{r_item['bottleneck_code']}</b></div>
+                </td>
             </tr>
         """
     ready_html += "</tbody></table></div>"
