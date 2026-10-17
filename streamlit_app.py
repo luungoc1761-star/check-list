@@ -509,8 +509,11 @@ if 'custom_stock_bytes' not in st.session_state:
         st.session_state.custom_stock_bytes = None
         st.session_state.custom_stock_name = None
 
+if 'plan_cleared' not in st.session_state:
+    st.session_state.plan_cleared = meta.get('plan_cleared', False)
+
 if 'custom_plan_bytes' not in st.session_state:
-    if os.path.exists(PLAN_PERSIST_FILE):
+    if not st.session_state.plan_cleared and os.path.exists(PLAN_PERSIST_FILE):
         try:
             with open(PLAN_PERSIST_FILE, 'rb') as f:
                 st.session_state.custom_plan_bytes = f.read()
@@ -587,7 +590,9 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
         return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu Excel: {str(e)}"
 
 @st.cache_data
-def get_loaded_plan_data(plan_bytes, plan_name):
+def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False):
+    if is_cleared:
+        return None, None
     if plan_bytes:
         plan_source = io.BytesIO(plan_bytes)
     else:
@@ -773,14 +778,47 @@ with st.sidebar:
             if (st.session_state.custom_plan_bytes != plan_bytes_val) or (st.session_state.custom_plan_name != uploaded_plan.name):
                 st.session_state.custom_plan_bytes = plan_bytes_val
                 st.session_state.custom_plan_name = uploaded_plan.name
+                st.session_state.plan_cleared = False
                 try:
                     with open(PLAN_PERSIST_FILE, 'wb') as f:
                         f.write(plan_bytes_val)
-                    save_meta({'plan_name': uploaded_plan.name})
+                    save_meta({'plan_name': uploaded_plan.name, 'plan_cleared': False})
                     auth_manager.log_activity(username, "UPLOAD_PLAN", f"Tải lên file Kế hoạch mới: {uploaded_plan.name}")
                 except Exception:
                     pass
                 st.cache_data.clear()
+                st.rerun()
+
+        # Nút xóa dữ liệu Kế hoạch trên sidebar
+        has_plan_active = not st.session_state.get('plan_cleared', False)
+        if has_plan_active:
+            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_sidebar", use_container_width=True, help="Xóa dữ liệu file kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
+                st.session_state.custom_plan_bytes = None
+                st.session_state.custom_plan_name = None
+                st.session_state.plan_cleared = True
+                if os.path.exists(PLAN_PERSIST_FILE):
+                    try:
+                        os.remove(PLAN_PERSIST_FILE)
+                    except Exception:
+                        pass
+                save_meta({'plan_name': None, 'plan_cleared': True})
+                st.session_state.orders_queue = [
+                    item for item in st.session_state.orders_queue
+                    if item.get('source') != 'Kế hoạch' and not str(item.get('id', '')).startswith('plan_')
+                ]
+                storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "CLEAR_PLAN", f"Người dùng {user_fullname} xóa dữ liệu file Kế hoạch sản xuất")
+                st.cache_data.clear()
+                st.toast("✅ Đã xóa dữ liệu file Kế hoạch!", icon="🗑️")
+                st.rerun()
+        else:
+            st.caption("ℹ️ Đã xóa dữ liệu Kế hoạch. Hệ thống đang tự động tính tồn kho đối soát những đơn đồng bộ chạy được.")
+            if st.button("🔄 Nạp lại Kế hoạch mặc định", key="btn_restore_default_plan", use_container_width=True):
+                st.session_state.plan_cleared = False
+                save_meta({'plan_cleared': False})
+                auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
+                st.cache_data.clear()
+                st.toast("✅ Đã nạp lại file Kế hoạch mặc định!", icon="✅")
                 st.rerun()
     else:
         st.info("🔒 Quyền **Kế hoạch** hoặc **Admin** mới được nạp file Kế hoạch mới.")
@@ -803,7 +841,8 @@ df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
 
 df_plan, plan_file_display_name = get_loaded_plan_data(
     active_plan_bytes,
-    active_plan_name
+    active_plan_name,
+    is_cleared=st.session_state.get('plan_cleared', False)
 )
 
 # Hiển thị tóm tắt dữ liệu ở Sidebar
@@ -829,11 +868,11 @@ with st.sidebar:
         plan_orders_temp = core_engine.extract_orders_from_plan(df_plan)
         st.caption(f"📁 **{current_plan_name}** ({len(df_plan):,} dòng, {len(plan_orders_temp):,} đơn)")
     else:
-        st.caption(f"📁 **{current_plan_name}** (Chưa có file kế hoạch)")
+        st.caption(f"📁 **File Kế hoạch** (Đã xóa dữ liệu / Chưa nạp)")
 
     # Nút khôi phục dữ liệu gốc (chỉ Admin)
     if user_permissions.get('can_reset_data', False):
-        if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
+        if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or st.session_state.get('plan_cleared', False) or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
             st.divider()
             if st.button("🔄 Khôi phục dữ liệu mẫu gốc", use_container_width=True):
                 st.session_state.custom_bom_bytes = None
@@ -842,6 +881,7 @@ with st.sidebar:
                 st.session_state.custom_stock_name = None
                 st.session_state.custom_plan_bytes = None
                 st.session_state.custom_plan_name = None
+                st.session_state.plan_cleared = False
                 st.session_state.orders_queue = []
                 for p_file in [STOCK_PERSIST_FILE, BOM_PERSIST_FILE, PLAN_PERSIST_FILE, META_PERSIST_FILE]:
                     if os.path.exists(p_file):
@@ -1062,7 +1102,7 @@ with tabs[0]:
     # Nạp từ file kế hoạch nếu có
     if df_plan is not None and len(df_plan) > 0 and can_queue:
         plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
-        col_p_btn, col_p_info = safe_columns([6, 4], vertical_alignment="center")
+        col_p_btn, col_p_del, col_p_info = safe_columns([5, 2.5, 4.5], vertical_alignment="center")
         with col_p_btn:
             if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", use_container_width=True):
                 st.session_state.orders_queue = plan_orders_extracted
@@ -1070,8 +1110,40 @@ with tabs[0]:
                 auth_manager.log_activity(username, "LOAD_PLAN_QUEUE", f"Nạp {len(plan_orders_extracted)} đơn từ Kế hoạch vào hàng chờ ({st.session_state.workspace_mode})")
                 st.toast(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch!", icon="✅")
                 st.rerun()
+        with col_p_del:
+            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_tab1", type="secondary", use_container_width=True, help="Xóa dữ liệu kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
+                st.session_state.custom_plan_bytes = None
+                st.session_state.custom_plan_name = None
+                st.session_state.plan_cleared = True
+                if os.path.exists(PLAN_PERSIST_FILE):
+                    try:
+                        os.remove(PLAN_PERSIST_FILE)
+                    except Exception:
+                        pass
+                save_meta({'plan_name': None, 'plan_cleared': True})
+                st.session_state.orders_queue = [
+                    item for item in st.session_state.orders_queue
+                    if item.get('source') != 'Kế hoạch' and not str(item.get('id', '')).startswith('plan_')
+                ]
+                storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                auth_manager.log_activity(username, "CLEAR_PLAN", f"Người dùng {user_fullname} xóa dữ liệu file Kế hoạch sản xuất")
+                st.cache_data.clear()
+                st.toast("✅ Đã xóa dữ liệu file Kế hoạch!", icon="🗑️")
+                st.rerun()
         with col_p_info:
             st.caption(f"File Kế hoạch gồm {len(df_plan)} dòng Model, ghép thành {len(plan_orders_extracted)} đơn sản xuất.")
+    elif st.session_state.get('plan_cleared', False) and can_queue:
+        col_p_nt1, col_p_nt2 = safe_columns([8, 2], vertical_alignment="center")
+        with col_p_nt1:
+            st.caption("ℹ️ Dữ liệu File Kế hoạch đã được xóa (chưa có đơn hàng chỉ định chạy). Hệ thống tự động tính tồn kho để đối soát những đơn đồng bộ chạy được.")
+        with col_p_nt2:
+            if st.button("🔄 Nạp lại Kế hoạch", key="btn_restore_plan_tab1", use_container_width=True):
+                st.session_state.plan_cleared = False
+                save_meta({'plan_cleared': False})
+                auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
+                st.cache_data.clear()
+                st.toast("✅ Đã nạp lại file Kế hoạch mặc định!", icon="✅")
+                st.rerun()
 
     if len(st.session_state.orders_queue) == 0:
         st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng chọn mã đơn ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
@@ -1329,10 +1401,13 @@ with tabs[2]:
             st.success("✅ Tuyệt vời: 100% linh kiện trong BOM đều tồn tại trong danh mục tồn kho.")
 
         st.markdown("#### 📅 2. Kiểm tra tính đồng bộ của File Kế hoạch với BOM:")
-        if integrity_report['plan_issues_count'] > 0:
-            st.dataframe(integrity_report['df_plan_issues'], use_container_width=True)
+        if df_plan is not None:
+            if integrity_report['plan_issues_count'] > 0:
+                st.dataframe(integrity_report['df_plan_issues'], use_container_width=True)
+            else:
+                st.success("✅ 100% các đơn hàng trong File Kế hoạch đều có cấu trúc định mức BOM đầy đủ, sẵn sàng chạy đối soát.")
         else:
-            st.success("✅ 100% các đơn hàng trong File Kế hoạch đều có cấu trúc định mức BOM đầy đủ, sẵn sàng chạy đối soát.")
+            st.info("ℹ️ Chưa nạp File Kế hoạch (hoặc dữ liệu Kế hoạch đã được xóa). Hệ thống tính tồn kho đối soát theo toàn bộ đơn hàng trong BOM.")
 
         st.markdown("#### 📦 3. Kiểm tra các dòng tồn kho âm hoặc bất thường:")
         if integrity_report['zero_stock_count'] > 0:
