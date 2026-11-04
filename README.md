@@ -21,13 +21,12 @@
 - **Xuất bản & Đồng bộ 1 chạm**: Planner/Admin có thể đẩy hàng chờ cá nhân lên thành hàng chờ chung hoặc sao chép hàng chờ chung về cá nhân để thử nghiệm.
 - **Giao dịch file Atomic**: Ghi dữ liệu an toàn qua file tạm và rename nguyên tử, chống lỗi hỏng dữ liệu khi nhiều người cùng thao tác.
 
-### 3. 🔍 Kiểm Soát Tính Toàn Vẹn & Chính Xác Tuyệt Đối (Data Integrity)
-- **Tab Kiểm tra Tính toàn vẹn Dữ liệu**:
-  - Tự động rà soát và chấm điểm sức khỏe dữ liệu (**Data Health Score %**).
-  - Liệt kê chi tiết các mã linh kiện có trong BOM nhưng chưa bao giờ nhập kho (kèm danh sách đơn hàng bị ảnh hưởng).
-  - Đối chiếu 100% dòng Model trong File Kế hoạch với cấu trúc định mức BOM.
-  - Cảnh báo tồn kho âm hoặc bằng 0 trong file Stock.
-- **Chuẩn hóa mã thông minh**: Tự động loại bỏ ký tự rác, khoảng trắng ẩn (`\u00A0`, `\ufeff`) trước khi so khớp mã linh kiện.
+### 3. 🧠 Đối Soát Thông Minh & Lọc Dữ Liệu Trọng Tâm Cho Agent (Smart Reconciliation & Agent Context)
+- **Tự động chọn Phiên bản (Variant) tối ưu**: Khi một đơn hàng có nhiều phiên bản trong BOM (ví dụ `0004` và `0104`), hệ thống tự động đối chiếu tồn kho thực tế để ưu tiên phiên bản có độ sẵn sàng 100% và cho sản lượng chạy tối đa cao nhất.
+- **Nhận diện đa ngôn ngữ & đa nguồn dữ liệu mới**: Tự động chuẩn hóa các cột dữ liệu từ nhiều nguồn khác nhau (`.xlsx`, `.xls`, `.csv`, tiếng Việt, tiếng Anh, SAP/ERP), loại bỏ ký tự ẩn (`\u00A0`, `\ufeff`, `\u200b`), hậu tố số thực `.0` và dấu phẩy hàng nghìn.
+- **Phân tích Đơn Cận Sẵn Sàng (Near-Ready Orders)**: Tự động lọc các đơn hàng đã đạt 95%–99% độ đồng bộ (chỉ thiếu từ 1 đến 3 mã linh kiện) để bộ phận Kế hoạch / Mua hàng ưu tiên thúc hàng mở khóa sản xuất nhanh.
+- **Gợi ý Mã Linh Kiện Tương Đương Trong Kho**: Tự động phát hiện các mã linh kiện báo thiếu trong BOM nhưng trong kho đang có tồn kho lớn của mã biến thể cùng họ (khác hậu tố mạ/đóng gói như `PA`, `PD`, `PE`, `TI`, `01` vs `51`...).
+- **Trích xuất Gói Dữ Liệu Chuẩn Hóa Cho AI Agent (`.JSON` & `.MD`)**: Xuất trực tiếp ngữ cảnh đối soát cấu trúc chuẩn (`schema_version: 2.0-agent-ready`) giúp các AI Agent lọc ngay dữ liệu quan trọng nhất (KPI, Top đơn chạy ngay, Top linh kiện nút cổ chai, Khuyến nghị điều độ kế hoạch).
 
 ### 4. 🚀 Trải Nghiệm Mượt Mà & Hiệu Năng Cao (Smooth UX)
 - **Phân trang (Pagination) thông minh**: Tự động phân trang cho danh sách hàng trăm đơn hàng và bảng linh kiện, giúp tải nhẹ nhàng và không gây đơ lag trình duyệt.

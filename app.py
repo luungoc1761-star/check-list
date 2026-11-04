@@ -398,7 +398,7 @@ if st.session_state.current_user is None:
                 <div style="font-size: 11px; color: #475569; margin-top: 6px;">Toàn quyền hệ thống & quản lý tài khoản</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚀 Vào với quyền Admin", key="btn_quick_admin", use_container_width=True, type="primary"):
+            if st.button("🚀 Vào với quyền Admin", key="btn_quick_admin", width="stretch", type="primary"):
                 ok, u_info, _ = auth_manager.authenticate("admin", "admin123")
                 if ok:
                     st.session_state.current_user = u_info
@@ -413,7 +413,7 @@ if st.session_state.current_user is None:
                 <div style="font-size: 11px; color: #475569; margin-top: 6px;">Quản lý hàng chờ FIFO & xuất Excel</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚀 Vào với quyền Planner", key="btn_quick_plan", use_container_width=True, type="primary"):
+            if st.button("🚀 Vào với quyền Planner", key="btn_quick_plan", width="stretch", type="primary"):
                 ok, u_info, _ = auth_manager.authenticate("planner", "plan123")
                 if ok:
                     st.session_state.current_user = u_info
@@ -428,7 +428,7 @@ if st.session_state.current_user is None:
                 <div style="font-size: 11px; color: #475569; margin-top: 6px;">Cập nhật Tồn kho & kiểm tra mã thiếu</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚀 Vào với quyền Kho", key="btn_quick_ware", use_container_width=True, type="primary"):
+            if st.button("🚀 Vào với quyền Kho", key="btn_quick_ware", width="stretch", type="primary"):
                 ok, u_info, _ = auth_manager.authenticate("warehouse", "kho123")
                 if ok:
                     st.session_state.current_user = u_info
@@ -443,7 +443,7 @@ if st.session_state.current_user is None:
                 <div style="font-size: 11px; color: #475569; margin-top: 6px;">Chỉ xem báo cáo & tải file Excel</div>
             </div>
             """, unsafe_allow_html=True)
-            if st.button("🚀 Vào với quyền Viewer", key="btn_quick_view", use_container_width=True):
+            if st.button("🚀 Vào với quyền Viewer", key="btn_quick_view", width="stretch"):
                 ok, u_info, _ = auth_manager.authenticate("viewer", "view123")
                 if ok:
                     st.session_state.current_user = u_info
@@ -459,7 +459,7 @@ if st.session_state.current_user is None:
                 username_input = st.text_input("Tên đăng nhập:", placeholder="Ví dụ: admin, planner...")
             with col_inp_p:
                 password_input = st.text_input("Mật khẩu:", type="password", placeholder="Nhập mật khẩu...")
-            btn_submit_login = st.form_submit_button("Đăng Nhập", type="primary", use_container_width=True)
+            btn_submit_login = st.form_submit_button("Đăng Nhập", type="primary", width="stretch")
             if btn_submit_login:
                 ok, user_res, err_msg = auth_manager.authenticate(username_input, password_input)
                 if ok:
@@ -543,7 +543,7 @@ def find_data_file(keywords):
             continue
         try:
             for fname in os.listdir(d):
-                if not fname.endswith(('.xlsx', '.xls')):
+                if not fname.lower().endswith(('.xlsx', '.xls', '.csv')):
                     continue
                 fname_lower = fname.lower()
                 if all(kw.lower() in fname_lower for kw in keywords):
@@ -558,11 +558,13 @@ def find_data_file(keywords):
 def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
     if bom_bytes:
         bom_source = io.BytesIO(bom_bytes)
+        bom_source.name = bom_name or "uploaded_bom.xlsx"
     else:
         bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom'])
 
     if stock_bytes:
         stock_source = io.BytesIO(stock_bytes)
+        stock_source.name = stock_name or "uploaded_stock.xlsx"
     else:
         stock_source = (
             find_data_file(['stock', '61']) 
@@ -570,14 +572,14 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
             or find_data_file(['stock'])
         )
 
-    empty_readiness = {'ready_orders': [], 'not_ready_orders': [], 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
+    empty_readiness = {'ready_orders': [], 'not_ready_orders': [], 'near_ready_orders': [], 'near_ready_count': 0, 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
 
     if bom_source is None or stock_source is None:
         missing = []
         if bom_source is None:
-            missing.append("Production BOM (.xlsx)")
+            missing.append("Production BOM (.xlsx / .csv)")
         if stock_source is None:
-            missing.append("Tồn kho (Stock 61 / Stock Balance) (.xlsx)")
+            missing.append("Tồn kho (Stock 61 / Stock Balance) (.xlsx / .csv)")
         return None, None, {}, empty_readiness, f"Chưa tìm thấy file mẫu: {', '.join(missing)}"
 
     try:
@@ -587,7 +589,7 @@ def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
         readiness_data = core_engine.analyze_orders_readiness(df_bom, df_stock)
         return df_bom, df_stock, orders_info, readiness_data, None
     except Exception as e:
-        return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu Excel: {str(e)}"
+        return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu: {str(e)}"
 
 @st.cache_data
 def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False):
@@ -595,6 +597,7 @@ def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False):
         return None, None
     if plan_bytes:
         plan_source = io.BytesIO(plan_bytes)
+        plan_source.name = plan_name or "uploaded_plan.xlsx"
     else:
         plan_source = (
             find_data_file(['kế hoạch'])
@@ -609,6 +612,19 @@ def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False):
         return df_plan, source_name
     except Exception:
         return None, None
+
+@st.cache_data
+def get_cached_fifo_allocation(queue_key, _orders_queue, _df_bom, _df_stock):
+    return core_engine.calculate_inventory_allocation(_orders_queue, _df_bom, _df_stock)
+
+@st.cache_data
+def get_cached_integrity_and_smart(cache_key, _df_bom, _df_stock, _df_plan, _calculation_results, _readiness_data):
+    integ = core_engine.check_data_integrity(_df_bom, _df_stock, _df_plan)
+    smart = core_engine.generate_smart_reconciliation_insights(
+        _df_bom, _df_stock, _df_plan, _calculation_results,
+        readiness_data=_readiness_data, integrity_report=integ
+    )
+    return integ, smart
 
 @st.cache_data
 def get_cached_readiness_excel(cache_key, _readiness_data):
@@ -640,12 +656,12 @@ with st.sidebar:
     
     col_sb_act1, col_sb_act2 = safe_columns(2)
     with col_sb_act1:
-        with st.popover("🔑 Đổi mật khẩu", use_container_width=True):
+        with st.popover("🔑 Đổi mật khẩu", width="stretch"):
             st.markdown("##### Đổi mật khẩu cá nhân")
             curr_pw = st.text_input("Mật khẩu hiện tại:", type="password", key="chg_curr_pw")
             new_pw = st.text_input("Mật khẩu mới:", type="password", key="chg_new_pw")
             new_pw_cf = st.text_input("Xác nhận MK mới:", type="password", key="chg_new_cf")
-            if st.button("Lưu mật khẩu mới", use_container_width=True, type="primary"):
+            if st.button("Lưu mật khẩu mới", width="stretch", type="primary"):
                 if new_pw != new_pw_cf:
                     st.error("Xác nhận mật khẩu mới không khớp.")
                 else:
@@ -655,7 +671,7 @@ with st.sidebar:
                     else:
                         st.error(chg_msg)
     with col_sb_act2:
-        if st.button("🚪 Đăng xuất", use_container_width=True):
+        if st.button("🚪 Đăng xuất", width="stretch"):
             auth_manager.log_activity(username, "LOGOUT", f"Người dùng {user_fullname} đã đăng xuất")
             st.session_state.current_user = None
             st.rerun()
@@ -685,7 +701,7 @@ with st.sidebar:
     if user_permissions.get('can_manage_queue', False):
         col_sync1, col_sync2 = safe_columns(2)
         with col_sync1:
-            if st.button("📤 Xuất bản Chung", help="Đưa hàng chờ cá nhân của bạn thành hàng chờ chung cho toàn nhà máy", use_container_width=True):
+            if st.button("📤 Xuất bản Chung", help="Đưa hàng chờ cá nhân của bạn thành hàng chờ chung cho toàn nhà máy", width="stretch"):
                 s_ok, s_msg = storage_manager.copy_queue(storage_manager.WORKSPACE_PRIVATE, storage_manager.WORKSPACE_SHARED, username)
                 if s_ok:
                     auth_manager.log_activity(username, "SYNC_QUEUE_PUBLISH", "Xuất bản hàng chờ cá nhân lên hàng chờ chung")
@@ -694,7 +710,7 @@ with st.sidebar:
                         st.session_state.orders_queue = storage_manager.load_queue(username, storage_manager.WORKSPACE_SHARED)
                         st.rerun()
         with col_sync2:
-            if st.button("📥 Sao chép về", help="Sao chép hàng chờ chung về không gian cá nhân của bạn để chỉnh sửa độc lập", use_container_width=True):
+            if st.button("📥 Sao chép về", help="Sao chép hàng chờ chung về không gian cá nhân của bạn để chỉnh sửa độc lập", width="stretch"):
                 s_ok, s_msg = storage_manager.copy_queue(storage_manager.WORKSPACE_SHARED, storage_manager.WORKSPACE_PRIVATE, username)
                 if s_ok:
                     auth_manager.log_activity(username, "SYNC_QUEUE_PULL", "Sao chép hàng chờ chung về không gian cá nhân")
@@ -713,9 +729,9 @@ with st.sidebar:
     if user_permissions.get('can_upload_stock', False):
         uploaded_stock = st.file_uploader(
             "Tải lên file Tồn kho mới",
-            type=["xlsx", "xls"],
+            type=["xlsx", "xls", "csv"],
             key="uploader_stock",
-            help="Hỗ trợ file Stock 61 (Item code, Wh, Qty) hoặc Stock Balance (Stock Code, Qty...)"
+            help="Hỗ trợ file Stock 61, Stock Balance, ERP Inventory (.xlsx, .xls, .csv)"
         )
         if uploaded_stock is not None:
             stock_bytes_val = uploaded_stock.getvalue()
@@ -741,9 +757,9 @@ with st.sidebar:
     if user_permissions.get('can_upload_bom', False):
         uploaded_bom = st.file_uploader(
             "Tải lên file Production BOM mới",
-            type=["xlsx", "xls"],
+            type=["xlsx", "xls", "csv"],
             key="uploader_bom",
-            help="Cột quan trọng: Product Code, Component Code, Qty"
+            help="Cột quan trọng: Product Code, Component Code, Qty (.xlsx, .xls, .csv)"
         )
         if uploaded_bom is not None:
             bom_bytes_val = uploaded_bom.getvalue()
@@ -769,9 +785,9 @@ with st.sidebar:
     if user_permissions.get('can_upload_plan', False):
         uploaded_plan = st.file_uploader(
             "Tải lên file Kế hoạch mới",
-            type=["xlsx", "xls"],
+            type=["xlsx", "xls", "csv"],
             key="uploader_plan",
-            help="Cột quan trọng: MODEL và Qty (và Due date nếu có)"
+            help="Cột quan trọng: MODEL và Qty (và Due date nếu có) (.xlsx, .xls, .csv)"
         )
         if uploaded_plan is not None:
             plan_bytes_val = uploaded_plan.getvalue()
@@ -792,7 +808,7 @@ with st.sidebar:
         # Nút xóa dữ liệu Kế hoạch trên sidebar
         has_plan_active = not st.session_state.get('plan_cleared', False)
         if has_plan_active:
-            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_sidebar", use_container_width=True, help="Xóa dữ liệu file kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
+            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_sidebar", width="stretch", help="Xóa dữ liệu file kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
                 st.session_state.custom_plan_bytes = None
                 st.session_state.custom_plan_name = None
                 st.session_state.plan_cleared = True
@@ -813,7 +829,7 @@ with st.sidebar:
                 st.rerun()
         else:
             st.caption("ℹ️ Đã xóa dữ liệu Kế hoạch. Hệ thống đang tự động tính tồn kho đối soát những đơn đồng bộ chạy được.")
-            if st.button("🔄 Nạp lại Kế hoạch mặc định", key="btn_restore_default_plan", use_container_width=True):
+            if st.button("🔄 Nạp lại Kế hoạch mặc định", key="btn_restore_default_plan", width="stretch"):
                 st.session_state.plan_cleared = False
                 save_meta({'plan_cleared': False})
                 auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
@@ -874,7 +890,7 @@ with st.sidebar:
     if user_permissions.get('can_reset_data', False):
         if st.session_state.custom_bom_bytes or st.session_state.custom_stock_bytes or st.session_state.custom_plan_bytes or st.session_state.get('plan_cleared', False) or os.path.exists(STOCK_PERSIST_FILE) or os.path.exists(BOM_PERSIST_FILE) or os.path.exists(PLAN_PERSIST_FILE):
             st.divider()
-            if st.button("🔄 Khôi phục dữ liệu mẫu gốc", use_container_width=True):
+            if st.button("🔄 Khôi phục dữ liệu mẫu gốc", width="stretch"):
                 st.session_state.custom_bom_bytes = None
                 st.session_state.custom_bom_name = None
                 st.session_state.custom_stock_bytes = None
@@ -916,13 +932,31 @@ if df_bom is None or df_stock is None:
     st.stop()
 
 
-# ==================== TÍNH TOÁN ĐỐI SOÁT FIFO HÀNG CHỜ ====================
+# ==================== TÍNH TOÁN ĐỐI SOÁT FIFO HÀNG CHỜ (CACHED) ====================
 calculation_results = []
 actual_ok_orders = 0
 actual_missing_orders = 0
 queue_len = len(st.session_state.orders_queue)
 if queue_len > 0:
-    calculation_results = core_engine.calculate_inventory_allocation(
+    q_key = (
+        active_bom_name or "default_bom",
+        active_stock_name or "default_stock",
+        len(df_bom),
+        len(df_stock),
+        tuple(
+            (
+                item.get('id', ''),
+                item.get('order_no', ''),
+                float(item.get('qty', 0)),
+                float(item.get('qty_left', item.get('qty', 0))),
+                float(item.get('qty_right', item.get('qty', 0))),
+                item.get('variant', '')
+            )
+            for item in st.session_state.orders_queue
+        )
+    )
+    calculation_results = get_cached_fifo_allocation(
+        q_key,
         st.session_state.orders_queue,
         df_bom,
         df_stock
@@ -982,7 +1016,7 @@ with col_m5:
 
 
 # ==================== ĐIỀU HƯỚNG TABS CHÍNH ====================
-tabs_list = ["📊 Đối Soát & Hàng Chờ FIFO", "🚀 Đơn Sẵn Sàng Chạy", "🔍 Kiểm Tra Tính Toàn Vẹn & Chính Xác"]
+tabs_list = ["📊 Đối Soát & Hàng Chờ FIFO", "🚀 Đơn Sẵn Sàng Chạy", "🧠 Đối Soát Thông Minh & Lọc Dữ Liệu (Agent)"]
 if user_permissions.get('can_view_audit', False):
     tabs_list.append("📜 Nhật Ký Hoạt Động (Audit Log)")
 if user_permissions.get('can_manage_users', False):
@@ -1012,7 +1046,7 @@ with tabs[0]:
         if ord_code in orders_info:
             ro_m = ready_orders_dict.get(ord_code)
             chip_label = f"🟢 Đơn {ord_code} ({ro_m['max_runnable_qty']:,} pcs)" if ro_m else f"⚠️ Đơn {ord_code}"
-            if chip_cols[c_i].button(chip_label, key=f"quick_{ord_code}", use_container_width=True):
+            if chip_cols[c_i].button(chip_label, key=f"quick_{ord_code}", width="stretch"):
                 st.session_state.quick_selected_order = ord_code
                 if ro_m:
                     st.session_state.quick_selected_qty = str(int(ro_m['max_runnable_qty']))
@@ -1043,7 +1077,7 @@ with tabs[0]:
         )
     with col_input3:
         can_queue = user_permissions.get('can_manage_queue', False)
-        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", use_container_width=True, disabled=not can_queue)
+        btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", width="stretch", disabled=not can_queue)
 
     if not can_queue:
         st.caption("🔒 *Tài khoản của bạn chỉ có quyền Xem (Viewer) hoặc Thủ kho, không được chỉnh sửa hàng chờ.*")
@@ -1093,7 +1127,7 @@ with tabs[0]:
         st.markdown(f"### ⏳ Hàng Chờ Tính Toán FIFO ({len(st.session_state.orders_queue)} đơn) - *{workspace_title}*")
     with col_q_clear:
         if can_queue and len(st.session_state.orders_queue) > 0:
-            if st.button("🗑️ Xóa hàng chờ", type="secondary", use_container_width=True):
+            if st.button("🗑️ Xóa hàng chờ", type="secondary", width="stretch"):
                 st.session_state.orders_queue = []
                 storage_manager.save_queue([], username, st.session_state.workspace_mode)
                 auth_manager.log_activity(username, "CLEAR_QUEUE", f"Xóa toàn bộ hàng chờ ({st.session_state.workspace_mode})")
@@ -1104,14 +1138,14 @@ with tabs[0]:
         plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
         col_p_btn, col_p_del, col_p_info = safe_columns([5, 2.5, 4.5], vertical_alignment="center")
         with col_p_btn:
-            if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", use_container_width=True):
+            if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", width="stretch"):
                 st.session_state.orders_queue = plan_orders_extracted
                 storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
                 auth_manager.log_activity(username, "LOAD_PLAN_QUEUE", f"Nạp {len(plan_orders_extracted)} đơn từ Kế hoạch vào hàng chờ ({st.session_state.workspace_mode})")
                 st.toast(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch!", icon="✅")
                 st.rerun()
         with col_p_del:
-            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_tab1", type="secondary", use_container_width=True, help="Xóa dữ liệu kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
+            if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_tab1", type="secondary", width="stretch", help="Xóa dữ liệu kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
                 st.session_state.custom_plan_bytes = None
                 st.session_state.custom_plan_name = None
                 st.session_state.plan_cleared = True
@@ -1137,7 +1171,7 @@ with tabs[0]:
         with col_p_nt1:
             st.caption("ℹ️ Dữ liệu File Kế hoạch đã được xóa (chưa có đơn hàng chỉ định chạy). Hệ thống tự động tính tồn kho để đối soát những đơn đồng bộ chạy được.")
         with col_p_nt2:
-            if st.button("🔄 Nạp lại Kế hoạch", key="btn_restore_plan_tab1", use_container_width=True):
+            if st.button("🔄 Nạp lại Kế hoạch", key="btn_restore_plan_tab1", width="stretch"):
                 st.session_state.plan_cleared = False
                 save_meta({'plan_cleared': False})
                 auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
@@ -1215,7 +1249,7 @@ with tabs[0]:
             file_name=f"Doi_Soat_Tong_Hop_{len(calculation_results)}_Don_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
-            use_container_width=True
+            width="stretch"
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -1260,7 +1294,7 @@ with tabs[0]:
                     file_name=f"Doi_Soat_Don_{order_no}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"dl_single_{r['id']}",
-                    use_container_width=True
+                    width="stretch"
                 )
             st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
@@ -1289,7 +1323,7 @@ with tabs[1]:
             file_name=f"Bao_Cao_Don_Du_Ma_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
-            use_container_width=True
+            width="stretch"
         )
     with col_dl_r2:
         st.caption("File Excel gồm 2 sheet: Đơn đủ mã sẵn sàng chạy và Đơn chưa đủ mã kèm danh mục linh kiện thiếu.")
@@ -1365,58 +1399,136 @@ with tabs[1]:
         st.caption(f"Hiển thị {len(page_items)} / {len(filtered_ready)} đơn (Trang {st.session_state.ready_page_idx} / {total_pages})")
     with col_p2:
         c_prev, c_txt, c_next = safe_columns([1, 2, 1], vertical_alignment="center")
-        if c_prev.button("◀ Trang trước", disabled=st.session_state.ready_page_idx <= 1, use_container_width=True):
+        if c_prev.button("◀ Trang trước", disabled=st.session_state.ready_page_idx <= 1, width="stretch"):
             st.session_state.ready_page_idx -= 1
             st.rerun()
         c_txt.markdown(f"<div style='text-align:center; font-weight:700;'>Trang {st.session_state.ready_page_idx}</div>", unsafe_allow_html=True)
-        if c_next.button("Trang sau ▶", disabled=st.session_state.ready_page_idx >= total_pages, use_container_width=True):
+        if c_next.button("Trang sau ▶", disabled=st.session_state.ready_page_idx >= total_pages, width="stretch"):
             st.session_state.ready_page_idx += 1
             st.rerun()
 
 
-# TAB 3: KIỂM TRA TÍNH TOÀN VẸN & CHÍNH XÁC
+# TAB 3: KIỂM TRA TÍNH TOÀN VẸN & ĐỐI SOÁT THÔNG MINH (AI AGENT FILTER)
 with tabs[2]:
     st.markdown("""
     <div style="background: linear-gradient(135deg, #1E3A8A 0%, #3B82F6 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
         <div style="font-size: 20px; font-weight: 850;">
-            🔍 KIỂM SOÁT TÍNH CHÍNH XÁC & ĐỐI SOÁT TOÀN VẸN DỮ LIỆU
+            🧠 ĐỐI SOÁT THÔNG MINH, LỌC DỮ LIỆU CHO AGENT & KIỂM TRA TOÀN VẸN
         </div>
         <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
-            Tự động rà soát sai lệch giữa Định mức BOM, File Tồn kho và File Kế hoạch để đảm bảo tính toán luôn chuẩn xác 100%.
+            Tự động lọc dữ liệu quan trọng, phát hiện linh kiện nút cổ chai, đơn cận sẵn sàng (chỉ thiếu 1-3 mã), gợi ý mã tương đương trong kho và xuất gói dữ liệu chuẩn cho các AI Agent.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    integrity_report = core_engine.check_data_integrity(df_bom, df_stock, df_plan)
-    if integrity_report:
-        c_h1, c_h2, c_h3, c_h4 = safe_columns(4)
+    smart_cache_key = (
+        active_bom_name or "default_bom",
+        active_stock_name or "default_stock",
+        active_plan_name or "default_plan",
+        st.session_state.get('plan_cleared', False),
+        len(df_bom),
+        len(df_stock),
+        len(df_plan) if df_plan is not None else 0,
+        queue_len,
+        actual_ok_orders
+    )
+    integrity_report, smart_insights = get_cached_integrity_and_smart(
+        smart_cache_key, df_bom, df_stock, df_plan, calculation_results, readiness_data
+    )
+
+    if integrity_report and smart_insights:
+        c_h1, c_h2, c_h3, c_h4, c_h5 = safe_columns(5)
         c_h1.metric("Điểm Sức Khỏe Dữ Liệu", f"{integrity_report['overall_health']}%")
         c_h2.metric("Mã LK Khớp Trong Kho", f"{integrity_report['matched_comps']} / {integrity_report['total_bom_comps']} mã")
-        c_h3.metric("Mã LK Chưa Có Trong Kho", f"{integrity_report['unmatched_comps_count']} mã", delta=f"-{integrity_report['unmatched_comps_count']}", delta_color="inverse")
-        c_h4.metric("Sai Lệch Kế Hoạch Sản Xuất", f"{integrity_report['plan_issues_count']} đơn")
+        c_h3.metric("Đơn Cận Sẵn Sàng (Thiếu 1-3 mã)", f"{readiness_data.get('near_ready_count', 0)} đơn")
+        c_h4.metric("Mã Có Linh Kiện Tương Đương", f"{integrity_report.get('substitutes_count', 0)} mã")
+        c_h5.metric("Sai Lệch Kế Hoạch Sản Xuất", f"{integrity_report['plan_issues_count']} đơn")
 
         st.markdown("---")
-        st.markdown(f"#### ⚠️ 1. Danh sách {integrity_report['unmatched_comps_count']} mã linh kiện trong BOM chưa có trong kho:")
-        st.caption("Các mã linh kiện này xuất hiện trong cấu trúc BOM nhưng hoàn toàn chưa có dòng nào trong file Tồn kho (Stock 61):")
-        if len(integrity_report['df_unmatched_comps']) > 0:
-            st.dataframe(integrity_report['df_unmatched_comps'], use_container_width=True, height=280)
-        else:
-            st.success("✅ Tuyệt vời: 100% linh kiện trong BOM đều tồn tại trong danh mục tồn kho.")
+        sub_tabs = st.tabs([
+            "🤖 Gói Dữ Liệu Quan Trọng Cho Agent",
+            "⚡ Đơn Cận Sẵn Sàng & Mã Tương Đương",
+            "🔍 Rà Soát Chi Tiết Toàn Vẹn Dữ Liệu"
+        ])
 
-        st.markdown("#### 📅 2. Kiểm tra tính đồng bộ của File Kế hoạch với BOM:")
-        if df_plan is not None:
-            if integrity_report['plan_issues_count'] > 0:
-                st.dataframe(integrity_report['df_plan_issues'], use_container_width=True)
+        # SUB-TAB 1: AGENT CONTEXT & SMART BRIEF
+        with sub_tabs[0]:
+            st.markdown("#### 🤖 Báo Cáo Lọc Dữ Liệu Trọng Tâm & Xuất Ngữ Cảnh Cho AI Agent")
+            st.caption("Tự động chắt lọc những thông tin đối soát quan trọng nhất từ các nguồn dữ liệu mới (BOM, Stock 61, Kế hoạch) theo định dạng chuẩn hóa JSON Schema & Markdown.")
+            col_ag1, col_ag2 = safe_columns(2)
+            with col_ag1:
+                agent_json_str = json.dumps(smart_insights['agent_payload'], ensure_ascii=False, indent=2)
+                st.download_button(
+                    label="📥 Tải Gói Dữ Liệu Chuẩn Hóa Cho Agent (.JSON)",
+                    data=agent_json_str.encode('utf-8'),
+                    file_name=f"Agent_Reconciliation_Context_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    type="primary",
+                    width="stretch"
+                )
+            with col_ag2:
+                st.download_button(
+                    label="📥 Tải Bản Tóm Tắt Đối Soát Thông Minh (.MD)",
+                    data=smart_insights['agent_markdown_brief'].encode('utf-8'),
+                    file_name=f"Smart_Reconciliation_Brief_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    width="stretch"
+                )
+
+            st.markdown(
+                f"<div style='background:#F8FAFC; border:1.5px solid #CBD5E1; border-radius:12px; padding:16px 20px; margin-top:10px;'>"
+                f"<b>💡 Tóm tắt nhanh cho Điều độ & Agent:</b> Hiện có <b>{readiness_data['ready_count']}/{readiness_data['total_orders']} đơn ({readiness_data['ready_percent']}%)</b> đủ 100% vật tư chạy ngay; "
+                f"<b>{readiness_data.get('near_ready_count', 0)} đơn cận sẵn sàng</b> (chỉ thiếu 1-3 mã linh kiện) và <b>{integrity_report.get('substitutes_count', 0)} mã thiếu</b> có mã tương đương cùng họ đang sẵn tồn kho lớn."
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+            if len(smart_insights['df_plan_smart']) > 0:
+                st.markdown("##### 📅 Phân Tích Thông Minh File Kế Hoạch Sản Xuất (FIFO Lũy Kế vs Độc Lập):")
+                st.dataframe(smart_insights['df_plan_smart'], width="stretch", height=320)
+
+            with st.expander("📄 Xem trực tiếp nội dung Báo cáo Agent Brief & JSON Schema", expanded=False):
+                st.markdown(smart_insights['agent_markdown_brief'])
+
+        # SUB-TAB 2: NEAR-READY ORDERS & SMART SUBSTITUTES
+        with sub_tabs[1]:
+            st.markdown(f"#### ⚡ 1. Danh sách {len(smart_insights['df_near_ready'])} Đơn Hàng Cận Sẵn Sàng (Chỉ thiếu từ 1 đến 3 mã linh kiện):")
+            st.caption("Ưu tiên xử lý hoặc thúc nhập kho các mã thiếu dưới đây sẽ mở khóa ngay các đơn hàng có độ đồng bộ đạt 95% - 99%:")
+            if len(smart_insights['df_near_ready']) > 0:
+                st.dataframe(smart_insights['df_near_ready'], width="stretch", height=300)
             else:
-                st.success("✅ 100% các đơn hàng trong File Kế hoạch đều có cấu trúc định mức BOM đầy đủ, sẵn sàng chạy đối soát.")
-        else:
-            st.info("ℹ️ Chưa nạp File Kế hoạch (hoặc dữ liệu Kế hoạch đã được xóa). Hệ thống tính tồn kho đối soát theo toàn bộ đơn hàng trong BOM.")
+                st.info("Hiện không có đơn hàng nào ở trạng thái cận sẵn sàng (thiếu 1-3 mã).")
 
-        st.markdown("#### 📦 3. Kiểm tra các dòng tồn kho âm hoặc bất thường:")
-        if integrity_report['zero_stock_count'] > 0:
-            st.dataframe(integrity_report['df_zero_stock'], use_container_width=True)
-        else:
-            st.success("✅ Dữ liệu số lượng tồn kho hợp lệ, không có mã nào bị âm.")
+            st.markdown(f"#### 🔄 2. Gợi ý {len(smart_insights['df_substitutes'])} Mã Linh Kiện Tương Đương / Cùng Họ Sẵn Có Trong Kho:")
+            st.caption("Phát hiện thông minh các mã linh kiện thiếu trong BOM nhưng trong kho đang có tồn kho mã cùng họ (khác hậu tố mạ/đóng gói PA, PD, PE, TI, 01 vs 51...):")
+            if len(smart_insights['df_substitutes']) > 0:
+                st.dataframe(smart_insights['df_substitutes'], width="stretch", height=280)
+            else:
+                st.success("Không phát hiện mã thiếu nào có biến thể tương đương cần đối chiếu.")
+
+        # SUB-TAB 3: FULL DATA INTEGRITY CHECKS
+        with sub_tabs[2]:
+            st.markdown(f"#### ⚠️ 1. Danh sách {integrity_report['unmatched_comps_count']} mã linh kiện trong BOM chưa có trong kho (Kèm mức độ ảnh hưởng):")
+            st.caption("Sắp xếp theo số lượng đơn hàng BOM bị chặn giảm dần để bộ phận Mua hàng / Kho ưu tiên xử lý:")
+            if len(integrity_report['df_unmatched_comps']) > 0:
+                st.dataframe(integrity_report['df_unmatched_comps'], width="stretch", height=280)
+            else:
+                st.success("✅ Tuyệt vời: 100% linh kiện trong BOM đều tồn tại trong danh mục tồn kho.")
+
+            st.markdown("#### 📅 2. Kiểm tra tính đồng bộ của File Kế hoạch với BOM:")
+            if df_plan is not None:
+                if integrity_report['plan_issues_count'] > 0:
+                    st.dataframe(integrity_report['df_plan_issues'], width="stretch")
+                else:
+                    st.success("✅ 100% các đơn hàng trong File Kế hoạch đều có cấu trúc định mức BOM đầy đủ, sẵn sàng chạy đối soát.")
+            else:
+                st.info("ℹ️ Chưa nạp File Kế hoạch (hoặc dữ liệu Kế hoạch đã được xóa). Hệ thống tính tồn kho đối soát theo toàn bộ đơn hàng trong BOM.")
+
+            st.markdown("#### 📦 3. Kiểm tra các dòng tồn kho âm hoặc bất thường:")
+            if integrity_report['zero_stock_count'] > 0:
+                st.dataframe(integrity_report['df_zero_stock'], width="stretch")
+            else:
+                st.success("✅ Dữ liệu số lượng tồn kho hợp lệ, không có mã nào bị âm.")
 
 
 # TAB 4: NHẬT KÝ HOẠT ĐỘNG (AUDIT LOG - ADMIN & PLANNER)
@@ -1440,7 +1552,7 @@ if user_permissions.get('can_view_audit', False):
             st.caption(f"Tổng số bản ghi nhật ký: **{len(logs)}** thao tác gần nhất")
         with col_l_clear:
             if user_permissions.get('can_manage_users', False):
-                if st.button("🗑️ Dọn sạch nhật ký", type="secondary", use_container_width=True):
+                if st.button("🗑️ Dọn sạch nhật ký", type="secondary", width="stretch"):
                     auth_manager.clear_audit_logs(username)
                     st.rerun()
 
@@ -1451,7 +1563,7 @@ if user_permissions.get('can_view_audit', False):
                 'action': 'Hành động',
                 'details': 'Chi tiết thao tác'
             })
-            st.dataframe(df_logs, use_container_width=True, height=400)
+            st.dataframe(df_logs, width="stretch", height=400)
         else:
             st.info("Chưa có nhật ký hoạt động nào được ghi nhận.")
 
@@ -1486,7 +1598,7 @@ if user_permissions.get('can_manage_users', False):
                 'Trạng thái': '🟢 Đang hoạt động' if uval.get('is_active', True) else '🔴 Đã khóa',
                 'Đăng nhập cuối': uval.get('last_login') or 'Chưa đăng nhập'
             })
-        st.dataframe(pd.DataFrame(user_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(user_rows), width="stretch")
 
         st.markdown("---")
         col_u1, col_u2 = safe_columns(2)
@@ -1504,7 +1616,7 @@ if user_permissions.get('can_manage_users', False):
                     options=list(auth_manager.ROLES_METADATA.keys()),
                     format_func=lambda r: auth_manager.ROLES_METADATA[r]['name']
                 )
-                btn_create = st.form_submit_button("Tạo Tài Khoản", type="primary", use_container_width=True)
+                btn_create = st.form_submit_button("Tạo Tài Khoản", type="primary", width="stretch")
                 if btn_create:
                     c_ok, c_msg = auth_manager.create_user(username, new_uname, new_pw, new_fname, new_role, new_dept)
                     if c_ok:
@@ -1533,7 +1645,7 @@ if user_permissions.get('can_manage_users', False):
                         key="sel_new_assigned_role"
                     )
                 with col_r_btn:
-                    if st.button("Cập nhật quyền", key="btn_update_r", use_container_width=True):
+                    if st.button("Cập nhật quyền", key="btn_update_r", width="stretch"):
                         u_ok, u_msg = auth_manager.update_user_role(username, selected_target, new_assigned_role)
                         if u_ok:
                             st.success(u_msg)
@@ -1547,7 +1659,7 @@ if user_permissions.get('can_manage_users', False):
                 with col_pw_in:
                     reset_pw_val = st.text_input(f"Đặt lại mật khẩu cho {selected_target}:", type="password", key="inp_reset_pw")
                 with col_pw_btn:
-                    if st.button("Đặt lại MK", key="btn_reset_pw", use_container_width=True):
+                    if st.button("Đặt lại MK", key="btn_reset_pw", width="stretch"):
                         p_ok, p_msg = auth_manager.reset_user_password(username, selected_target, reset_pw_val)
                         if p_ok:
                             st.success(p_msg)
@@ -1557,7 +1669,7 @@ if user_permissions.get('can_manage_users', False):
                 # Khóa / Mở khóa
                 is_target_active = target_user_data.get('is_active', True)
                 toggle_btn_label = "🔒 Khóa tài khoản này" if is_target_active else "🔓 Mở khóa tài khoản này"
-                if st.button(toggle_btn_label, key="btn_toggle_active", use_container_width=True):
+                if st.button(toggle_btn_label, key="btn_toggle_active", width="stretch"):
                     t_ok, t_msg = auth_manager.toggle_user_active(username, selected_target)
                     if t_ok:
                         st.success(t_msg)
