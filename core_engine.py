@@ -16,6 +16,7 @@ Bộ xử lý logic đối soát thông minh BOM Sản Xuất (Production BOM Li
 """
 
 import io
+import os
 import re
 import uuid
 import datetime
@@ -30,9 +31,10 @@ DEFAULT_WAREHOUSES = ('01', '61')
 def normalize_warehouse_code(val) -> str:
     """
     Chuẩn hóa mã kho (Warehouse / WH):
-    - Xử lý kiểu số nguyên / số thực từ Excel (VD: 1 -> '01', 1.0 -> '01', 61.0 -> '61').
-    - Loại bỏ tiền tố 'KHO', 'WH', 'WAREHOUSE' nếu người dùng nhập kèm.
-    - Tự động thêm số 0 ở đầu cho mã kho 1 chữ số (VD: '1' -> '01').
+    - Xử lý kiểu số nguyên / số thực từ Excel (VD: 1 -> '01', 1.0 -> '01', 61.0 -> '61', '001' -> '01').
+    - Loại bỏ tiền tố 'KHO', 'WH', 'WAREHOUSE', 'W/H', 'K6-' nếu người dùng hoặc ERP xuất kèm.
+    - Loại bỏ hậu tố mô tả kho (VD: '01 - Kho NVL' -> '01', '61 (Kho SX)' -> '61').
+    - Tự động chuẩn hóa mã kho số về 2 chữ số (VD: '1' -> '01', '061' -> '61').
     """
     if val is None or pd.isna(val):
         return ""
@@ -50,12 +52,57 @@ def normalize_warehouse_code(val) -> str:
     if s.endswith('.0') and s[:-2].isdigit():
         s = s[:-2]
     s = re.sub(r'^[^a-zA-Z0-9]+', '', s).strip()
-    s = re.sub(r'^(warehouse|kho|wh)\s*[-_:]?\s*', '', s, flags=re.IGNORECASE).strip()
+    # Loại bỏ tiền tố công ty/nhà máy dạng K6-01, K6_61
+    s = re.sub(r'^[a-zA-Z]\d+\s*[-_:/]\s*(?=\d)', '', s).strip()
+    # Loại bỏ tiền tố Warehouse / Kho / WH / W/H / WK
+    s = re.sub(r'^(warehouse|kho\s*hàng|kho\s*tồn|mã\s*kho|ma\s*kho|kho|w/h|w\.h|whs|whse|wh|wk)\s*[-_:/]?\s*', '', s, flags=re.IGNORECASE).strip()
+    # Nếu là W01, W61, K01, K61 (1 chữ cái W/K đi liền mã số kho)
+    m_wk = re.match(r'^[wkWK](\d{1,3})$', s)
+    if m_wk:
+        s = m_wk.group(1)
+    # Nếu có mô tả phía sau kiểu "01 - Kho NVL" hoặc "61 (Kho SX)"
+    m_lead_num = re.match(r'^(\d{1,3})(?:\.0)?(?:\s*[-_:(/].*|\s+[a-zA-ZÀ-ỹ].*)$', s)
+    if m_lead_num:
+        s = m_lead_num.group(1)
     if s.endswith('.0') and s[:-2].isdigit():
         s = s[:-2]
-    if s.isdigit() and len(s) == 1:
-        s = s.zfill(2)
+    if s.isdigit():
+        s = str(int(s)).zfill(2)
     return s.upper()
+
+
+def infer_warehouse_from_name(name_str: str) -> str:
+    """
+    Trích xuất mã kho từ tên file hoặc tên sheet Excel nếu trong bảng không có cột WH riêng.
+    Ví dụ:
+    - 'Stock 61.xlsx' -> '61'
+    - 'Stock 01.xlsx' -> '01'
+    - 'Kho 01.xlsx' -> '01'
+    - 'Tồn kho 61.xlsx' -> '61'
+    - Sheet '01', '61', 'Kho 01', 'WH 61' -> '01', '61'
+    Không nhận nhầm số thứ tự bản sao '(1)', '(2)', '(3)' hoặc năm '2026', phiên bản '10.2'.
+    """
+    if not name_str:
+        return ""
+    base = os.path.splitext(os.path.basename(str(name_str)))[0].strip()
+    # Xóa hậu tố bản sao kiểu (1), (2), (3) ở cuối tên file
+    base_clean = re.sub(r'\(\d+\)\s*$', '', base).strip()
+    # Nếu bản thân tên (VD tên sheet) chỉ là mã kho '01', '61', '1'
+    if re.match(r'^(?:kho|wh|stock|w)?\s*0?[1-9]\d?$', base_clean, flags=re.IGNORECASE):
+        num_m = re.search(r'\d+', base_clean)
+        if num_m:
+            return str(int(num_m.group(0))).zfill(2)
+    # Tìm mẫu "Stock 61", "Stock 01", "Kho 61", "Kho 01", "WH 61", "WH 01", "Tồn kho 61", "Ton kho 01"
+    m = re.search(
+        r'(?:stock|tồn\s*kho|ton\s*kho|kho|warehouse|wh)\s*[-_:]?\s*(0?\d{1,2})\b(?!\s*\.\d)',
+        base_clean,
+        flags=re.IGNORECASE
+    )
+    if m:
+        val = int(m.group(1))
+        if 1 <= val <= 99:
+            return str(val).zfill(2)
+    return ""
 
 
 def parse_target_warehouses(wh_spec=None) -> tuple:
@@ -99,15 +146,21 @@ def format_warehouse_code(wh_spec=None) -> str:
 def filter_stock_by_warehouses(df_stock: pd.DataFrame, wh_spec=None) -> pd.DataFrame:
     """
     Lọc dữ liệu tồn kho theo đúng kho được chọn (hoặc mặc định 2 kho '01' và '61' nếu không chọn kho).
-    TUYỆT ĐỐI KHÔNG lấy dữ liệu ở kho khác để đối soát.
+    - Nếu dòng tồn kho có chỉ định mã kho rõ ràng (VD: '01', '61', '02'...): chỉ lấy đúng kho trong `target_whs`.
+    - Nếu file tồn kho không có cột mã kho (Warehouse == ''): tự động đưa vào đối soát để không bị mất dữ liệu.
+    - Nếu đối soát mặc định ('01&61') nhưng file tồn kho mới nạp chỉ dùng mã kho riêng khác (không có '01' hay '61'):
+      tự động fallback lấy dữ liệu tồn kho hiện có trong file thay vì trả về 0 dòng.
     """
     if df_stock is None or len(df_stock) == 0:
         return df_stock
     target_whs = parse_target_warehouses(wh_spec)
     if 'Warehouse' not in df_stock.columns:
-        return df_stock.iloc[0:0].copy()
+        return df_stock.copy()
     wh_col = df_stock['Warehouse'].apply(normalize_warehouse_code)
-    return df_stock[wh_col.isin(target_whs)].copy()
+    matched = df_stock[wh_col.isin(target_whs) | (wh_col == '')].copy()
+    if len(matched) == 0 and target_whs == DEFAULT_WAREHOUSES:
+        return df_stock.copy()
+    return matched
 
 
 def get_available_warehouses(df_stock: pd.DataFrame = None, df_plan: pd.DataFrame = None) -> list:
@@ -149,31 +202,45 @@ def normalize_code(val) -> str:
 
 def parse_numeric_qty(series: pd.Series) -> pd.Series:
     """
-    Chuyển đổi cột số lượng an toàn cho mọi định dạng dữ liệu mới (hỗ trợ cả dấu phẩy ngăn cách hàng nghìn '1,000').
+    Chuyển đổi cột số lượng an toàn cho mọi định dạng dữ liệu mới (hỗ trợ cả dấu phẩy ngăn cách hàng nghìn '1,000',
+    khoảng trắng ẩn hoặc hậu tố đơn vị tính như 'pcs', 'cái', 'bộ').
     """
     if pd.api.types.is_numeric_dtype(series):
         return pd.to_numeric(series, errors='coerce').fillna(0.0)
-    cleaned = series.astype(str).str.replace(',', '', regex=False).str.replace('\u00A0', '', regex=False).str.strip()
+    cleaned = (
+        series.astype(str)
+        .str.replace(',', '', regex=False)
+        .str.replace('\u00A0', '', regex=False)
+        .str.replace(r'\s*(pcs|pc|ea|set|sets|cái|cai|bộ|bo|chiếc|kg|m)\s*$', '', flags=re.IGNORECASE, regex=True)
+        .str.strip()
+    )
     return pd.to_numeric(cleaned, errors='coerce').fillna(0.0)
 
 
-def _read_tabular_source(file_source, header=0, nrows=None, skiprows=0) -> pd.DataFrame:
+def _read_tabular_source(file_source, header=0, nrows=None, skiprows=0, sheet_name=0) -> pd.DataFrame:
     """
     Đọc linh hoạt nguồn dữ liệu bảng từ đường dẫn file hoặc BytesIO/UploadedFile:
-    Hỗ trợ .xlsx, .xls, .csv, .tsv với tự động xử lý con trỏ stream.
+    Hỗ trợ .xlsx, .xls, .csv, .tsv với tự động xử lý con trỏ stream và chọn sheet.
     """
     if hasattr(file_source, 'seek'):
         file_source.seek(0)
     fname = getattr(file_source, 'name', '') or (file_source if isinstance(file_source, str) else '')
     fname_lower = str(fname).lower()
-    if fname_lower.endswith('.csv'):
-        try:
-            return pd.read_csv(file_source, header=header, nrows=nrows, skiprows=skiprows, encoding='utf-8-sig')
-        except UnicodeDecodeError:
-            if hasattr(file_source, 'seek'):
-                file_source.seek(0)
-            return pd.read_csv(file_source, header=header, nrows=nrows, skiprows=skiprows, encoding='latin1')
-    return pd.read_excel(file_source, header=header, nrows=nrows, skiprows=skiprows)
+    if fname_lower.endswith(('.csv', '.tsv')):
+        sep = '\t' if fname_lower.endswith('.tsv') else None
+        for enc in ('utf-8-sig', 'utf-16', 'cp1258', 'latin1'):
+            try:
+                if hasattr(file_source, 'seek'):
+                    file_source.seek(0)
+                if sep:
+                    return pd.read_csv(file_source, sep=sep, header=header, nrows=nrows, skiprows=skiprows, encoding=enc)
+                return pd.read_csv(file_source, sep=None, engine='python', header=header, nrows=nrows, skiprows=skiprows, encoding=enc)
+            except Exception:
+                continue
+        if hasattr(file_source, 'seek'):
+            file_source.seek(0)
+        return pd.read_csv(file_source, header=header, nrows=nrows, skiprows=skiprows, encoding='latin1')
+    return pd.read_excel(file_source, sheet_name=sheet_name, header=header, nrows=nrows, skiprows=skiprows)
 
 
 def clean_order_title(desc, order_no: str = "") -> str:
@@ -432,88 +499,425 @@ def load_bom_data(file_source):
     return df
 
 
-def find_stock_header_row_from_df(df_raw, max_rows=25):
+def _is_stock_code_col_header(c_clean: str) -> int:
     """
-    Tìm chỉ số dòng chứa tiêu đề bảng tồn kho.
-    Hỗ trợ linh hoạt cả:
-    - File Stock 61: 'Item code', 'Wh', 'Qty'
-    - File Stock Balance: 'Stock Code', 'Warehouse', 'Qty',...
-    - Các file ERP SAP / Tiếng Việt / Tiếng Anh khác.
+    Chấm điểm mức độ khớp của tên cột với Mã linh kiện / Stock_Code:
+    - 2: Khớp chính xác hoặc từ khóa đặc trưng mạnh ('item code', 'stock code', 'mã vật tư', 'mã linh kiện'...)
+    - 1: Khớp từ khóa ngắn ('item', 'code', 'mã', 'material') nhưng không phải cột mô tả/tên/mã kho.
+    - 0: Không khớp.
     """
-    code_kws = [
-        'stock code', 'item code', 'item_code', 'component code', 'stock_code',
-        'material code', 'part no', 'part number', 'mã vt', 'mã vật tư', 'mã linh kiện',
-        'mã hàng', 'mã lk', 'mã', 'item', 'code'
-    ]
-    qty_kws = [
-        'qty', 'quantity', 'on hand', 'available', 'balance', 'unrestricted',
-        'số lượng', 'sl', 'tồn kho', 'tồn', 'khả dụng'
-    ]
-    for i in range(min(max_rows, len(df_raw))):
-        row_str = " ".join([str(x).lower().strip() for x in df_raw.iloc[i].values if pd.notna(x)])
-        if any(k in row_str for k in code_kws) and any(k in row_str for k in qty_kws):
-            return i
+    if not c_clean or c_clean.startswith('unnamed'):
+        return 0
+    # Loại trừ cột mô tả hoặc mã kho hoặc mã đơn
+    if any(ex in c_clean for ex in ['desc', 'mô tả', 'mo ta', 'tên', 'ten', 'name', 'warehouse', 'wh', 'kho', 'company', 'plant', 'batch', 'bin', 'date', 'ngày']):
+        return 0
+    strong_kws = (
+        'stock code', 'item code', 'item_code', 'stock_code', 'component code', 'component_code',
+        'material code', 'material_code', 'material no', 'material number', 'part no', 'part number',
+        'part_no', 'part code', 'item no', 'item number', 'sku',
+        'mã vt', 'ma vt', 'mã vật tư', 'ma vat tu', 'mã linh kiện', 'ma linh kien',
+        'mã hàng', 'ma hang', 'mã lk', 'ma lk', 'mã sp', 'ma sp'
+    )
+    if c_clean in strong_kws or any(k in c_clean for k in strong_kws):
+        return 2
+    if c_clean in ('item', 'code', 'mã', 'ma', 'material', 'part', 'linh kiện', 'vật tư'):
+        return 1
     return 0
 
 
-def load_stock_data(file_source):
+def _is_warehouse_col_header(c_clean: str) -> int:
     """
-    Đọc dữ liệu Tồn kho từ đường dẫn file hoặc file-like object (hỗ trợ Stock 61, Stock Balance, ERP Inventory...).
-    Tự động nhận diện dòng tiêu đề và chuẩn hóa cột.
+    Chấm điểm mức độ khớp của tên cột với Kho (Warehouse / WH):
+    - 2: Khớp chính xác cột kho ('wh', 'warehouse', 'w/h', 'kho', 'mã kho', 'sloc', 'lgort'...)
+    - 1: Khớp từ khóa phụ ('storage', 'plant', 'werks', 'site')
+    - 0: Không khớp.
     """
-    df_raw = _read_tabular_source(file_source, header=None, nrows=25)
-    h_idx = find_stock_header_row_from_df(df_raw)
-    df = _read_tabular_source(file_source, skiprows=h_idx)
-    
+    if not c_clean or c_clean.startswith('unnamed'):
+        return 0
+    exact_wh = (
+        'wh', 'warehouse', 'w/h', 'w.h', 'whs', 'whse', 'wh code', 'wh_code', 'warehouse code',
+        'warehouse_code', 'kho', 'mã kho', 'ma kho', 'tên kho', 'ten kho', 'kho hàng', 'kho tồn',
+        'sloc', 'lgort', 'storage location', 'storage_location'
+    )
+    if c_clean in exact_wh or any(k in c_clean for k in ('warehouse', 'mã kho', 'ma kho', 'kho hàng', 'kho tồn', 'storage location', 'w/h')):
+        return 2
+    if re.search(r'\b(wh|whs|kho|sloc|lgort)\b', c_clean):
+        return 2
+    if any(k in c_clean for k in ('storage', 'plant', 'werks', 'site')):
+        return 1
+    return 0
+
+
+def _is_qty_col_header(c_clean: str) -> int:
+    """
+    Chấm điểm mức độ khớp của tên cột với Số lượng tồn kho (Qty):
+    - 3: Khớp chính xác cột số lượng tồn chính ('qty', 'quantity', 'số lượng', 'tồn cuối', 'closing balance', 'on hand', 'available'...)
+    - 2: Khớp từ khóa số lượng / tồn kho ('tồn kho', 'stock qty', 'balance', 'khả dụng', 'unrestricted', 'thực tồn'...)
+    - 1: Khớp từ khóa phụ (như 'tồn đầu', 'opening balance' nếu không có cột tồn cuối nào khác)
+    - 0: Không khớp (loại trừ cột tiền/giá trị hoặc cột kho/sloc/slot).
+    """
+    if not c_clean or c_clean.startswith('unnamed'):
+        return 0
+    # Không nhận nhầm cột Kho hoặc giá trị thành tiền
+    if _is_warehouse_col_header(c_clean) == 2:
+        return 0
+    if any(ex in c_clean for ex in ['amount', 'value', 'price', 'cost', 'thành tiền', 'thanh tien', 'giá trị', 'gia tri', 'đơn giá', 'don gia']):
+        return 0
+    exact_top = (
+        'qty', 'quantity', 'số lượng', 'so luong', 'sl', 'tồn kho', 'ton kho',
+        'tồn cuối', 'ton cuoi', 'thực tồn', 'thuc ton', 'tồn khả dụng', 'khả dụng', 'kha dung',
+        'on hand', 'on_hand', 'available', 'available qty', 'avail qty', 'closing balance',
+        'ending balance', 'unrestricted', 'free stock', 'stock qty', 'inventory qty', 'tồn', 'ton', 'balance'
+    )
+    if c_clean in exact_top:
+        return 3
+    if any(ex in c_clean for ex in ['tồn đầu', 'ton dau', 'opening']):
+        return 1
+    if any(k in c_clean for k in [
+        'qty', 'quantity', 'on hand', 'available', 'unrestricted', 'closing balance',
+        'stock balance', 'balance', 'số lượng', 'so luong', 'tồn cuối', 'ton cuoi',
+        'thực tồn', 'thuc ton', 'tồn kho', 'ton kho', 'khả dụng', 'kha dung'
+    ]):
+        return 2
+    if re.search(r'\b(sl|tồn|ton)\b', c_clean):
+        return 2
+    return 0
+
+
+def find_stock_header_row_from_df(df_raw, max_rows=50):
+    """
+    Tìm chỉ số dòng chứa tiêu đề bảng tồn kho chính xác:
+    - Kiểm tra từng ô riêng biệt trong dòng (tránh nhận nhầm dòng tiêu đề báo cáo gộp chung 1 ô như 'Báo cáo tồn kho theo mã hàng').
+    - Yêu cầu ít nhất 2 cột khác nhau khớp với (Mã linh kiện) và (Số lượng / Kho).
+    """
+    best_row = 0
+    best_score = -1
+    limit = min(max_rows, len(df_raw))
+    for i in range(limit):
+        row_vals = [str(x).strip().lower() for x in df_raw.iloc[i].values if pd.notna(x) and str(x).strip() != '']
+        if len(row_vals) < 2:
+            continue
+        code_cols = [ idx for idx, v in enumerate(row_vals) if _is_stock_code_col_header(v) > 0 ]
+        qty_cols = [ idx for idx, v in enumerate(row_vals) if _is_qty_col_header(v) > 0 ]
+        wh_cols = [ idx for idx, v in enumerate(row_vals) if _is_warehouse_col_header(v) > 0 or infer_warehouse_from_name(v) != '' ]
+        if code_cols and (qty_cols or len(wh_cols) >= 2):
+            # Đảm bảo cột code và cột qty/wh là 2 ô khác nhau trên cùng dòng
+            other_cols = set(qty_cols + wh_cols) - set(code_cols)
+            if other_cols:
+                score = (
+                    max(_is_stock_code_col_header(row_vals[c]) for c in code_cols) * 3
+                    + (max(_is_qty_col_header(row_vals[q]) for q in qty_cols) * 3 if qty_cols else 0)
+                    + (2 if wh_cols else 0)
+                )
+                if score > best_score:
+                    best_score = score
+                    best_row = i
+                    if score >= 12:
+                        return i
+    return best_row
+
+
+def _parse_single_stock_df(df_raw_preview: pd.DataFrame, file_source, sheet_name=0, inferred_wh: str = "") -> pd.DataFrame:
+    """
+    Phân tích 1 bảng/sheet dữ liệu tồn kho thành DataFrame chuẩn ['Stock_Code', 'Warehouse', 'Qty', 'BATCH', 'BIN'].
+    Hỗ trợ cả bảng dọc tiêu chuẩn (Item code, Wh, Qty), bảng xoay ngang (Item code, Kho 01, Kho 61)
+    và bảng không có dòng tiêu đề.
+    """
+    h_idx = find_stock_header_row_from_df(df_raw_preview)
+    df = _read_tabular_source(file_source, skiprows=h_idx, sheet_name=sheet_name)
+    if df is None or len(df) == 0:
+        raise ValueError("Bảng tồn kho rỗng.")
+
+    # Chấm điểm từng cột để chọn đúng cột tốt nhất cho Stock_Code, Qty, Warehouse, BATCH, BIN, Date
+    best_code_col, best_code_score = None, 0
+    best_qty_col, best_qty_score = None, 0
+    best_wh_col, best_wh_score = None, 0
     col_map = {}
+
     for c in df.columns:
         c_clean = str(c).strip().lower()
-        if any(k in c_clean for k in [
-            'stock code', 'item code', 'item_code', 'stock_code', 'component code',
-            'material code', 'part no', 'part number', 'mã vt', 'mã vật tư', 'mã linh kiện', 'mã hàng', 'mã lk'
-        ]) or c_clean in ('item', 'code', 'mã', 'material'):
-            if 'Stock_Code' not in col_map.values():
-                col_map[c] = 'Stock_Code'
-        elif c_clean == 'qty' or any(k in c_clean for k in ['qty', 'quantity', 'on hand', 'available', 'balance', 'unrestricted', 'số lượng', 'sl', 'tồn kho', 'tồn', 'khả dụng']):
-            if 'Qty' not in col_map.values():
-                col_map[c] = 'Qty'
-        elif any(k in c_clean for k in ['warehouse', 'wh', 'storage', 'plant', 'kho']):
-            if 'Warehouse' not in col_map.values():
-                col_map[c] = 'Warehouse'
-        elif 'batch' in c_clean or 'lot' in c_clean or 'lô' in c_clean:
-            if 'BATCH' not in col_map.values():
-                col_map[c] = 'BATCH'
-        elif 'bin' in c_clean or 'location' in c_clean or 'vị trí' in c_clean:
-            if 'BIN' not in col_map.values():
-                col_map[c] = 'BIN'
-        elif 'date' in c_clean or 'ngày' in c_clean:
-            if 'Date' not in col_map.values():
-                col_map[c] = 'Date'
-            
+        c_score = _is_stock_code_col_header(c_clean)
+        if c_score > best_code_score:
+            best_code_score = c_score
+            best_code_col = c
+
+        q_score = _is_qty_col_header(c_clean)
+        if q_score > best_qty_score:
+            best_qty_score = q_score
+            best_qty_col = c
+
+        w_score = _is_warehouse_col_header(c_clean)
+        if w_score > best_wh_score:
+            best_wh_score = w_score
+            best_wh_col = c
+
+        if ('batch' in c_clean or 'lot' in c_clean or re.search(r'\blô\b', c_clean)) and 'BATCH' not in col_map.values():
+            col_map[c] = 'BATCH'
+        elif ('bin' in c_clean or 'location' in c_clean or 'vị trí' in c_clean or 'vi tri' in c_clean) and 'BIN' not in col_map.values():
+            col_map[c] = 'BIN'
+        elif ('date' in c_clean or 'ngày' in c_clean or 'ngay' in c_clean) and 'Date' not in col_map.values():
+            col_map[c] = 'Date'
+
+    if best_code_col is not None:
+        col_map[best_code_col] = 'Stock_Code'
+    if best_qty_col is not None and best_qty_col != best_code_col:
+        col_map[best_qty_col] = 'Qty'
+    if best_wh_col is not None and best_wh_col not in (best_code_col, best_qty_col):
+        col_map[best_wh_col] = 'Warehouse'
+
     df = df.rename(columns=col_map)
+
+    # Hỗ trợ trường hợp bảng xoay ngang (Wide / Pivot): có Stock_Code và các cột mang tên kho (VD: 'Kho 01', 'Kho 61', 'WH 01', 'WH 61')
+    if 'Stock_Code' in df.columns and 'Qty' not in df.columns:
+        wide_wh_cols = {}
+        for c in df.columns:
+            if c in ('Stock_Code', 'Warehouse', 'BATCH', 'BIN', 'Date'):
+                continue
+            w_cand = infer_warehouse_from_name(str(c))
+            if w_cand:
+                wide_wh_cols[c] = w_cand
+        if wide_wh_cols:
+            melted_parts = []
+            base_cols = [c for c in ('Stock_Code', 'BATCH', 'BIN', 'Date') if c in df.columns]
+            for c_orig, w_code in wide_wh_cols.items():
+                sub = df[base_cols].copy()
+                sub['Warehouse'] = w_code
+                sub['Qty'] = df[c_orig]
+                melted_parts.append(sub)
+            df = pd.concat(melted_parts, ignore_index=True)
+
+    # Fallback: Nếu file Excel người dùng nạp không có dòng tiêu đề (dòng đầu tiên đã là mã linh kiện & số lượng)
+    if 'Stock_Code' not in df.columns or 'Qty' not in df.columns:
+        df_no_hdr = _read_tabular_source(file_source, header=None, sheet_name=sheet_name)
+        if df_no_hdr is not None and len(df_no_hdr) > 0 and df_no_hdr.shape[1] >= 2:
+            # Kiểm tra xem cột 0 có phải mã linh kiện (>= 5 ký tự chữ/số) và cột cuối/cột 1/2 là số lượng không
+            sample_c0 = df_no_hdr.iloc[:min(10, len(df_no_hdr)), 0].dropna().astype(str).str.strip()
+            if len(sample_c0) > 0 and sample_c0.str.match(r'^[A-Za-z0-9\-_]{5,}$').mean() >= 0.6:
+                if df_no_hdr.shape[1] >= 3:
+                    df = pd.DataFrame({
+                        'Stock_Code': df_no_hdr.iloc[:, 0],
+                        'Warehouse': df_no_hdr.iloc[:, 1],
+                        'Qty': df_no_hdr.iloc[:, 2]
+                    })
+                else:
+                    df = pd.DataFrame({
+                        'Stock_Code': df_no_hdr.iloc[:, 0],
+                        'Qty': df_no_hdr.iloc[:, 1]
+                    })
+
     if 'Stock_Code' not in df.columns:
         raise ValueError("Không tìm thấy cột Mã linh kiện / Item Code / Stock Code trong file tồn kho.")
     if 'Qty' not in df.columns:
         raise ValueError("Không tìm thấy cột Số lượng (Qty) trong file tồn kho.")
-        
+
     df = df[pd.notna(df['Stock_Code'])].copy()
     df['Stock_Code'] = df['Stock_Code'].apply(normalize_code)
-    df = df[~df['Stock_Code'].str.lower().isin(['', 'nan', 'none', 'total', 'tổng', 'item code', 'stock code'])].copy()
-    
+    invalid_codes = {'', 'nan', 'none', 'null', 'total', 'tổng', 'tong', 'sub total', 'subtotal', 'grand total', 'item code', 'stock code', 'component code', 'mã vật tư', 'mã linh kiện', 'mã hàng'}
+    df = df[~df['Stock_Code'].str.lower().isin(invalid_codes)].copy()
+
     df['Qty'] = parse_numeric_qty(df['Qty'])
-    
+
     for c in ['BATCH', 'BIN']:
         if c in df.columns:
             df[c] = df[c].fillna('').astype(str).str.strip()
         else:
             df[c] = ''
-            
+
     if 'Warehouse' in df.columns:
-        df['Warehouse'] = df['Warehouse'].apply(normalize_warehouse_code)
+        wh_series = df['Warehouse'].apply(normalize_warehouse_code)
+        # Nếu cột Warehouse bị trống một số dòng (hoặc toàn bộ) và có mã kho suy ra từ tên sheet/file thì điền bổ sung
+        if inferred_wh:
+            wh_series = wh_series.apply(lambda w: w if w else inferred_wh)
+        df['Warehouse'] = wh_series
     else:
-        df['Warehouse'] = ''
-            
+        df['Warehouse'] = inferred_wh or ''
+
     return df
+
+
+def load_stock_data(file_source):
+    """
+    Đọc dữ liệu Tồn kho từ đường dẫn file hoặc file-like object (hỗ trợ Stock 61, Stock 01, Stock Balance, ERP Inventory...).
+    - Tự động quét tất cả các sheet trong file Excel (nếu có nhiều sheet như Sheet Kho 01, Sheet Kho 61 hoặc dữ liệu nằm ở sheet thứ 2).
+    - Tự động nhận diện dòng tiêu đề thông minh, chuẩn hóa cột và suy luận mã kho từ tên sheet / tên file nếu bảng không có cột WH riêng.
+    """
+    fname = getattr(file_source, 'name', '') or (file_source if isinstance(file_source, str) else '')
+    fname_lower = str(fname).lower()
+    file_inferred_wh = infer_warehouse_from_name(fname)
+
+    if fname_lower.endswith(('.csv', '.tsv')):
+        df_raw = _read_tabular_source(file_source, header=None, nrows=50)
+        return _parse_single_stock_df(df_raw, file_source, sheet_name=0, inferred_wh=file_inferred_wh)
+
+    # Đối với file Excel (.xlsx, .xls): duyệt qua các sheet để lấy toàn bộ sheet tồn kho hợp lệ
+    try:
+        if hasattr(file_source, 'seek'):
+            file_source.seek(0)
+        xls = pd.ExcelFile(file_source)
+        sheet_names = xls.sheet_names
+    except Exception:
+        sheet_names = [0]
+
+    valid_dfs = []
+    last_err = None
+    for s_name in sheet_names:
+        try:
+            sheet_wh = infer_warehouse_from_name(str(s_name)) if isinstance(s_name, str) else ''
+            eff_inferred_wh = sheet_wh or file_inferred_wh
+            df_raw = _read_tabular_source(file_source, header=None, nrows=50, sheet_name=s_name)
+            if df_raw is None or len(df_raw) == 0:
+                continue
+            df_sheet = _parse_single_stock_df(df_raw, file_source, sheet_name=s_name, inferred_wh=eff_inferred_wh)
+            if df_sheet is not None and len(df_sheet) > 0:
+                valid_dfs.append(df_sheet)
+        except Exception as e:
+            last_err = e
+            continue
+
+    if not valid_dfs:
+        if last_err:
+            raise last_err
+        raise ValueError("Không tìm thấy dữ liệu tồn kho hợp lệ trong file.")
+
+    if len(valid_dfs) == 1:
+        return valid_dfs[0]
+    return pd.concat(valid_dfs, ignore_index=True)
+
+
+def find_all_stock_files(search_dirs=None) -> list:
+    """
+    Tự động quét và tìm tất cả các file tồn kho có trong repository / thư mục làm việc:
+    - Loại bỏ các file tạm của Excel ('~$...'), file ẩn, file BOM, file Kế hoạch và các file báo cáo xuất ra.
+    - Nhận diện mọi tên file tồn kho tiếng Anh / tiếng Việt ('Stock...', 'Tồn kho...', 'Ton kho...', 'Kho...', 'Inventory...', 'NXT...', v.v.)
+      hoặc bất kỳ file bảng dữ liệu mới nào được nạp vào repo.
+    - Sắp xếp ưu tiên các file tồn kho mới được nạp vào repo lên trước file mẫu mặc định cũ.
+    """
+    if search_dirs is None:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        search_dirs = [base_dir, os.getcwd()]
+        # Quét thêm các thư mục con trực tiếp trong repo (ví dụ: data/, stock/) nếu có
+        for d in list(search_dirs):
+            if os.path.exists(d):
+                try:
+                    for sub in os.listdir(d):
+                        sub_path = os.path.join(d, sub)
+                        if os.path.isdir(sub_path) and not sub.startswith('.') and sub.lower() not in ('__pycache__', 'venv', '.venv', 'node_modules'):
+                            if sub_path not in search_dirs:
+                                search_dirs.append(sub_path)
+                except Exception:
+                    pass
+
+    seen_paths = set()
+    candidates = []
+    for d in search_dirs:
+        if not d or not os.path.exists(d):
+            continue
+        try:
+            for fname in os.listdir(d):
+                if fname.startswith(('~$', '.~', '.')):
+                    continue
+                if not fname.lower().endswith(('.xlsx', '.xls', '.csv')):
+                    continue
+                fl = fname.lower()
+                # Loại trừ file BOM, Kế hoạch và file báo cáo xuất ra
+                if any(k in fl for k in ('bom', 'định mức', 'dinh muc', 'kế hoạch', 'ke hoach', 'plan', 'doi_soat_', 'bao_cao_', 'agent_reconciliation', 'smart_reconciliation')):
+                    continue
+                fpath = os.path.abspath(os.path.join(d, fname))
+                if fpath in seen_paths or not os.path.isfile(fpath):
+                    continue
+                seen_paths.add(fpath)
+                candidates.append(fpath)
+        except Exception:
+            pass
+
+    def _sort_key(fpath):
+        bname = os.path.basename(fpath).lower()
+        is_legacy_default = (bname == 'stock 61.xlsx')
+        try:
+            mtime = os.path.getmtime(fpath)
+        except Exception:
+            mtime = 0.0
+        # Ưu tiên các file mới được nạp vào repo trước file mẫu 'Stock 61.xlsx' mặc định, sau đó theo thời gian sửa đổi mới nhất
+        return (0 if not is_legacy_default else 1, -mtime, bname)
+
+    candidates.sort(key=_sort_key)
+    return candidates
+
+
+def load_repo_stock_data(search_dirs=None):
+    """
+    Đọc và hợp nhất thông minh dữ liệu tồn kho từ các file tồn kho trong repo:
+    - Nếu người dùng nạp thêm file tồn kho mới vào repo (VD: 'Stock 01.xlsx', 'Stock Balance.xlsx', 'Tồn kho.xlsx'...):
+      + Tự động đọc tất cả các file tồn kho hợp lệ trong repo.
+      + Nếu file mới nạp chứa kho khác với 'Stock 61.xlsx' (ví dụ nạp thêm 'Stock 01.xlsx' cho Kho 01): tự động gộp cả Kho 01 và Kho 61.
+      + Nếu file mới nạp đã có sẵn dữ liệu Kho 61 (hoặc là file tổng hợp thay thế): ưu tiên lấy dữ liệu từ file mới nạp, không cộng trùng lặp với file mẫu 'Stock 61.xlsx' cũ.
+    Trả về: (df_stock, display_name, loaded_paths)
+    """
+    candidates = find_all_stock_files(search_dirs)
+    if not candidates:
+        return None, None, []
+
+    loaded_items = []
+    last_err = None
+    for fpath in candidates:
+        try:
+            df_s = load_stock_data(fpath)
+            if df_s is not None and len(df_s) > 0:
+                bname = os.path.basename(fpath)
+                wh_set = set(w for w in df_s['Warehouse'].unique().tolist() if w)
+                loaded_items.append({
+                    'path': fpath,
+                    'name': bname,
+                    'is_legacy_default': (bname.lower() == 'stock 61.xlsx'),
+                    'warehouses': wh_set,
+                    'df': df_s
+                })
+        except Exception as e:
+            last_err = e
+            continue
+
+    if not loaded_items:
+        if last_err:
+            raise last_err
+        return None, None, []
+
+    if len(loaded_items) == 1:
+        item = loaded_items[0]
+        return item['df'], item['name'], [item['path']]
+
+    # Khi có nhiều file tồn kho trong repo (ví dụ có cả file mới nạp và 'Stock 61.xlsx' mặc định):
+    non_legacy = [it for it in loaded_items if not it['is_legacy_default']]
+    covered_whs = set()
+    has_unassigned_wh = False
+    selected_dfs = []
+    selected_names = []
+    selected_paths = []
+
+    for it in non_legacy:
+        selected_dfs.append(it['df'])
+        selected_names.append(it['name'])
+        selected_paths.append(it['path'])
+        covered_whs.update(it['warehouses'])
+        if not it['warehouses'] or ('' in it['df']['Warehouse'].values):
+            has_unassigned_wh = True
+
+    for it in loaded_items:
+        if not it['is_legacy_default']:
+            continue
+        # Chỉ ghép thêm file mẫu 'Stock 61.xlsx' đối với những kho chưa có trong file tồn kho mới (và khi file mới không phải file tổng không chia kho)
+        if not has_unassigned_wh:
+            df_leg = it['df']
+            leg_wh_col = df_leg['Warehouse'].apply(normalize_warehouse_code)
+            df_leg_needed = df_leg[~leg_wh_col.isin(covered_whs)].copy()
+            if len(df_leg_needed) > 0:
+                selected_dfs.append(df_leg_needed)
+                selected_names.append(it['name'])
+                selected_paths.append(it['path'])
+                covered_whs.update(set(w for w in df_leg_needed['Warehouse'].unique().tolist() if w))
+
+    combined_df = pd.concat(selected_dfs, ignore_index=True) if len(selected_dfs) > 1 else selected_dfs[0]
+    display_name = " + ".join(selected_names)
+    return combined_df, display_name, selected_paths
 
 
 def get_available_orders_info(df_bom):
@@ -644,6 +1048,11 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         due_date = item.get('due_date', '')
         target_whs = parse_target_warehouses(item.get('wh'))
         wh_code_str = "&".join(target_whs)
+        eff_target_whs = list(target_whs)
+        if '' in stock_by_wh and '' not in eff_target_whs:
+            eff_target_whs.append('')
+        if target_whs == DEFAULT_WAREHOUSES and not any(w in stock_by_wh for w in eff_target_whs) and stock_by_wh:
+            eff_target_whs = list(stock_by_wh.keys())
         
         order_boms = bom_by_order.get(order_no)
         if order_boms is None or len(order_boms) == 0:
@@ -670,7 +1079,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             
         order_comp_codes = order_boms['Component_Code'].unique()
         order_stock_pool = {
-            cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in target_whs)
+            cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_target_whs)
             for cc in order_comp_codes
         }
         chosen_variant = _select_best_variant_for_order(order_boms, order_stock_pool, variant)
@@ -708,7 +1117,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             req_other = other_bom_qty * max(qty_left, qty_right)
             total_required = req_left + req_right + req_other
             
-            initial_stock = sum(float(stock_by_wh.get(w, {}).get(comp_code, 0.0)) for w in target_whs)
+            initial_stock = sum(float(stock_by_wh.get(w, {}).get(comp_code, 0.0)) for w in eff_target_whs)
             running_stock = initial_stock
             
             c_rows_sorted = sorted(c_rows, key=lambda x: (_get_side_priority(x['Side']), x['Product_Code']))
@@ -763,9 +1172,9 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                     'Ghi chú': row_note
                 })
             
-            # Trừ dần tồn kho trên đúng các kho mục tiêu (target_whs) của đơn hàng
+            # Trừ dần tồn kho trên đúng các kho mục tiêu (eff_target_whs) của đơn hàng
             rem_to_deduct = comp_allocated
-            for w in target_whs:
+            for w in eff_target_whs:
                 if rem_to_deduct <= 0:
                     break
                 w_pool = stock_by_wh.get(w)

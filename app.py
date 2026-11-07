@@ -506,12 +506,71 @@ if 'custom_bom_bytes' not in st.session_state:
         st.session_state.custom_bom_bytes = None
         st.session_state.custom_bom_name = None
 
+def find_data_file(keywords):
+    """Tìm file dữ liệu tự động theo từ khóa trong thư mục script, thư mục làm việc và thư mục cha."""
+    search_dirs = [
+        os.path.dirname(os.path.abspath(__file__)),
+        os.getcwd(),
+        os.path.join(os.getcwd(), ".."),
+    ]
+    for d in search_dirs:
+        if not os.path.exists(d):
+            continue
+        try:
+            for fname in os.listdir(d):
+                if fname.startswith(('~$', '.~', '.')):
+                    continue
+                if not fname.lower().endswith(('.xlsx', '.xls', '.csv')):
+                    continue
+                fname_lower = fname.lower()
+                if all(kw.lower() in fname_lower for kw in keywords):
+                    return os.path.join(d, fname)
+        except Exception:
+            pass
+    return None
+
+
+def get_repo_files_signature():
+    """
+    Lấy chữ ký trạng thái (đường dẫn, mtime, dung lượng) của tất cả các file dữ liệu trong repo
+    để @st.cache_data tự động nhận biết ngay lập tức khi có file mới nạp vào repo hoặc cập nhật.
+    """
+    sig = []
+    stock_candidates = core_engine.find_all_stock_files()
+    bom_f = find_data_file(['production', 'bom']) or find_data_file(['bom']) or find_data_file(['định mức'])
+    plan_f = find_data_file(['kế hoạch']) or find_data_file(['ke hoach']) or find_data_file(['plan'])
+    all_paths = list(stock_candidates)
+    for extra in (bom_f, plan_f):
+        if extra and os.path.abspath(extra) not in all_paths:
+            all_paths.append(os.path.abspath(extra))
+    for p in sorted(all_paths):
+        try:
+            st_info = os.stat(p)
+            sig.append((p, round(st_info.st_mtime, 2), st_info.st_size))
+        except Exception:
+            pass
+    return tuple(sig)
+
+
+# Kiểm tra xem có file tồn kho mới nạp vào repo mới hơn file custom_stock.xlsx cũ không
 if 'custom_stock_bytes' not in st.session_state:
     if os.path.exists(STOCK_PERSIST_FILE):
         try:
-            with open(STOCK_PERSIST_FILE, 'rb') as f:
-                st.session_state.custom_stock_bytes = f.read()
-            st.session_state.custom_stock_name = meta.get('stock_name', os.path.basename(STOCK_PERSIST_FILE))
+            persist_mtime = os.path.getmtime(STOCK_PERSIST_FILE)
+            repo_stock_files = core_engine.find_all_stock_files()
+            newest_repo_mtime = max((os.path.getmtime(p) for p in repo_stock_files), default=0.0)
+            if newest_repo_mtime > persist_mtime:
+                # Có file tồn kho mới vừa được nạp vào repo -> ưu tiên lấy file trong repo
+                try:
+                    os.remove(STOCK_PERSIST_FILE)
+                except Exception:
+                    pass
+                st.session_state.custom_stock_bytes = None
+                st.session_state.custom_stock_name = None
+            else:
+                with open(STOCK_PERSIST_FILE, 'rb') as f:
+                    st.session_state.custom_stock_bytes = f.read()
+                st.session_state.custom_stock_name = meta.get('stock_name', os.path.basename(STOCK_PERSIST_FILE))
         except Exception:
             st.session_state.custom_stock_bytes = None
             st.session_state.custom_stock_name = None
@@ -541,68 +600,46 @@ if 'quick_selected_qty' not in st.session_state:
     st.session_state.quick_selected_qty = "100"
 
 
-def find_data_file(keywords):
-    """Tìm file dữ liệu tự động theo từ khóa trong thư mục script, thư mục làm việc và thư mục cha."""
-    search_dirs = [
-        os.path.dirname(os.path.abspath(__file__)),
-        os.getcwd(),
-        os.path.join(os.getcwd(), ".."),
-    ]
-    for d in search_dirs:
-        if not os.path.exists(d):
-            continue
-        try:
-            for fname in os.listdir(d):
-                if not fname.lower().endswith(('.xlsx', '.xls', '.csv')):
-                    continue
-                fname_lower = fname.lower()
-                if all(kw.lower() in fname_lower for kw in keywords):
-                    return os.path.join(d, fname)
-        except Exception:
-            pass
-    return None
-
-
 # ==================== HÀM LOAD DỮ LIỆU CÓ CACHE ====================
 @st.cache_data
-def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name):
+def get_loaded_data(bom_bytes, bom_name, stock_bytes, stock_name, repo_sig=None):
     if bom_bytes:
         bom_source = io.BytesIO(bom_bytes)
         bom_source.name = bom_name or "uploaded_bom.xlsx"
     else:
-        bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom'])
-
-    if stock_bytes:
-        stock_source = io.BytesIO(stock_bytes)
-        stock_source.name = stock_name or "uploaded_stock.xlsx"
-    else:
-        stock_source = (
-            find_data_file(['stock', '61']) 
-            or find_data_file(['stock', 'balance']) 
-            or find_data_file(['stock'])
-        )
+        bom_source = find_data_file(['production', 'bom']) or find_data_file(['bom']) or find_data_file(['định mức'])
 
     empty_readiness = {'ready_orders': [], 'not_ready_orders': [], 'near_ready_orders': [], 'near_ready_count': 0, 'total_orders': 0, 'ready_count': 0, 'not_ready_count': 0, 'ready_percent': 0.0}
 
-    if bom_source is None or stock_source is None:
-        missing = []
-        if bom_source is None:
-            missing.append("Production BOM (.xlsx / .csv)")
-        if stock_source is None:
-            missing.append("Tồn kho (Stock 61 / Stock Balance) (.xlsx / .csv)")
-        return None, None, {}, empty_readiness, f"Chưa tìm thấy file mẫu: {', '.join(missing)}"
+    if bom_source is None:
+        return None, None, {}, empty_readiness, None, "Chưa tìm thấy file mẫu: Production BOM (.xlsx / .csv)"
 
     try:
         df_bom = core_engine.load_bom_data(bom_source)
-        df_stock = core_engine.load_stock_data(stock_source)
+        df_stock = None
+        resolved_stock_name = stock_name
+        if stock_bytes:
+            try:
+                stock_source = io.BytesIO(stock_bytes)
+                stock_source.name = stock_name or "uploaded_stock.xlsx"
+                df_stock = core_engine.load_stock_data(stock_source)
+            except Exception:
+                df_stock = None
+        if df_stock is None or len(df_stock) == 0:
+            df_stock, repo_stock_label, _ = core_engine.load_repo_stock_data()
+            resolved_stock_name = f"{repo_stock_label} (Repo)" if repo_stock_label else None
+
+        if df_stock is None or len(df_stock) == 0:
+            return None, None, {}, empty_readiness, None, "Chưa tìm thấy file Tồn kho hợp lệ trong repo hoặc dữ liệu tồn kho trống."
+
         orders_info = core_engine.get_available_orders_info(df_bom)
         readiness_data = core_engine.analyze_orders_readiness(df_bom, df_stock)
-        return df_bom, df_stock, orders_info, readiness_data, None
+        return df_bom, df_stock, orders_info, readiness_data, resolved_stock_name, None
     except Exception as e:
-        return None, None, {}, empty_readiness, f"Lỗi đọc dữ liệu: {str(e)}"
+        return None, None, {}, empty_readiness, None, f"Lỗi đọc dữ liệu: {str(e)}"
 
 @st.cache_data
-def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False):
+def get_loaded_plan_data(plan_bytes, plan_name, is_cleared=False, repo_sig=None):
     if is_cleared:
         return None, None
     if plan_bytes:
@@ -745,7 +782,7 @@ with st.sidebar:
             "Tải lên file Tồn kho mới",
             type=["xlsx", "xls", "csv"],
             key="uploader_stock",
-            help="Hỗ trợ file Stock 61, Stock Balance, ERP Inventory (.xlsx, .xls, .csv)"
+            help="Hỗ trợ file Stock 61, Stock 01, Stock Balance, ERP Inventory (.xlsx, .xls, .csv)"
         )
         if uploaded_stock is not None:
             stock_bytes_val = uploaded_stock.getvalue()
@@ -760,6 +797,20 @@ with st.sidebar:
                 except Exception:
                     pass
                 st.cache_data.clear()
+                st.rerun()
+        if st.session_state.custom_stock_bytes is not None or os.path.exists(STOCK_PERSIST_FILE):
+            if st.button("🔄 Dùng file Tồn kho trong Repo", key="btn_use_repo_stock", width="stretch", help="Chuyển về đọc trực tiếp các file tồn kho đang có trong Repository"):
+                st.session_state.custom_stock_bytes = None
+                st.session_state.custom_stock_name = None
+                if os.path.exists(STOCK_PERSIST_FILE):
+                    try:
+                        os.remove(STOCK_PERSIST_FILE)
+                    except Exception:
+                        pass
+                save_meta({'stock_name': None})
+                auth_manager.log_activity(username, "RESTORE_REPO_STOCK", "Chuyển về sử dụng file Tồn kho trong Repo")
+                st.cache_data.clear()
+                st.toast("✅ Đã nạp dữ liệu Tồn kho trực tiếp từ Repo!", icon="✅")
                 st.rerun()
     else:
         st.info("🔒 Quyền **Thủ kho** hoặc **Admin** mới được nạp file Tồn kho mới.")
@@ -870,6 +921,7 @@ with st.sidebar:
 
 
 # Tải dữ liệu thực tế
+repo_sig = get_repo_files_signature()
 active_stock_bytes = st.session_state.custom_stock_bytes
 active_stock_name = st.session_state.custom_stock_name
 active_bom_bytes = st.session_state.custom_bom_bytes
@@ -877,26 +929,26 @@ active_bom_name = st.session_state.custom_bom_name
 active_plan_bytes = st.session_state.custom_plan_bytes
 active_plan_name = st.session_state.custom_plan_name
 
-df_bom, df_stock, orders_info, readiness_data, load_error = get_loaded_data(
+df_bom, df_stock, orders_info, readiness_data, resolved_stock_name, load_error = get_loaded_data(
     active_bom_bytes,
     active_bom_name,
     active_stock_bytes,
-    active_stock_name
+    active_stock_name,
+    repo_sig=repo_sig
 )
 
 df_plan, plan_file_display_name = get_loaded_plan_data(
     active_plan_bytes,
     active_plan_name,
-    is_cleared=st.session_state.get('plan_cleared', False)
+    is_cleared=st.session_state.get('plan_cleared', False),
+    repo_sig=repo_sig
 )
 
 # Hiển thị tóm tắt dữ liệu ở Sidebar
 with st.sidebar:
     st.markdown("---")
     st.markdown("#### 📊 Dữ liệu hiện tại:")
-    default_stock_path = find_data_file(['stock', '61']) or find_data_file(['stock', 'balance']) or find_data_file(['stock'])
-    default_stock_label = f"{os.path.basename(default_stock_path)} (Mặc định)" if default_stock_path else "Stock 61.xlsx (Mặc định)"
-    current_stock_name = active_stock_name or default_stock_label
+    current_stock_name = resolved_stock_name or active_stock_name or "Stock 61.xlsx (Repo)"
     if df_stock is not None:
         stock_whs = sorted([w for w in df_stock['Warehouse'].unique().tolist() if w]) if 'Warehouse' in df_stock.columns else []
         wh_info_str = f" | Kho: {', '.join(stock_whs)}" if stock_whs else ""
@@ -917,6 +969,11 @@ with st.sidebar:
         st.caption(f"📁 **{current_plan_name}** ({len(df_plan):,} dòng, {len(plan_orders_temp):,} đơn | WH: {', '.join(plan_whs)})")
     else:
         st.caption(f"📁 **File Kế hoạch** (Đã xóa dữ liệu / Chưa nạp)")
+
+    if st.button("🔄 Quét & Nạp lại dữ liệu từ Repo", key="btn_rescan_repo_files", width="stretch", help="Làm mới bộ nhớ đệm và đọc lại các file Tồn kho / BOM / Kế hoạch mới nhất trong Repo"):
+        st.cache_data.clear()
+        st.toast("✅ Đã quét và làm mới dữ liệu từ Repo!", icon="🔄")
+        st.rerun()
 
     # Nút khôi phục dữ liệu gốc (chỉ Admin)
     if user_permissions.get('can_reset_data', False):
@@ -972,7 +1029,8 @@ queue_len = len(st.session_state.orders_queue)
 if queue_len > 0:
     q_key = (
         active_bom_name or "default_bom",
-        active_stock_name or "default_stock",
+        resolved_stock_name or active_stock_name or "default_stock",
+        repo_sig,
         len(df_bom),
         len(df_stock),
         tuple(
@@ -1083,7 +1141,8 @@ with tabs[0]:
     active_input_wh_code = core_engine.format_warehouse_code(curr_wh_input_raw)
     tab1_readiness_key = (
         active_bom_name or "default_bom",
-        active_stock_name or "default_stock",
+        resolved_stock_name or active_stock_name or "default_stock",
+        repo_sig,
         len(df_bom),
         len(df_stock),
         active_input_wh_code
@@ -1334,7 +1393,7 @@ with tabs[0]:
 
             c[6].write(item.get('due_date') or item.get('created_at', ''))
             if can_queue:
-                if c[7].button("❌", key=f"del_{item['id']}"):
+                if c[7].button("❌", key=f"del_{item.get('id', idx)}_{idx}"):
                     to_delete_idx = idx
             else:
                 c[7].write("-")
@@ -1407,7 +1466,7 @@ with tabs[0]:
                     data=single_excel,
                     file_name=f"Doi_Soat_Don_{order_no}_Kho_{order_wh.replace('&', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_single_{r['id']}",
+                    key=f"dl_single_{r.get('id', stt)}_{stt}",
                     width="stretch"
                 )
             if len(r.get('summary_table', pd.DataFrame())) > 0:
@@ -1431,7 +1490,8 @@ with tabs[1]:
     tab2_wh_code = core_engine.format_warehouse_code(tab2_wh_raw)
     tab2_readiness_key = (
         active_bom_name or "default_bom",
-        active_stock_name or "default_stock",
+        resolved_stock_name or active_stock_name or "default_stock",
+        repo_sig,
         len(df_bom),
         len(df_stock),
         tab2_wh_code
@@ -1567,8 +1627,9 @@ with tabs[2]:
 
     smart_cache_key = (
         active_bom_name or "default_bom",
-        active_stock_name or "default_stock",
+        resolved_stock_name or active_stock_name or "default_stock",
         active_plan_name or "default_plan",
+        repo_sig,
         st.session_state.get('plan_cleared', False),
         len(df_bom),
         len(df_stock),

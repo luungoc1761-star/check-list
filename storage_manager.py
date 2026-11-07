@@ -10,9 +10,33 @@ Giải quyết triệt để vấn đề xung đột khi chia sẻ cho nhiều n
 
 import os
 import json
+import uuid
 import shutil
 import datetime
 from typing import List, Dict, Tuple, Optional
+
+_UNSET = object()
+
+
+def _normalize_queue_items(items) -> List[dict]:
+    """Đảm bảo mọi phần tử trong hàng chờ đều có đầy đủ id, order_no, qty và wh hợp lệ."""
+    if not isinstance(items, list):
+        return []
+    normalized = []
+    for idx, item in enumerate(items, 1):
+        if not isinstance(item, dict):
+            continue
+        ord_no = str(item.get('order_no', '')).strip()
+        if not ord_no:
+            continue
+        new_item = dict(item)
+        if not new_item.get('id'):
+            wh_s = str(new_item.get('wh', '01&61')).strip() or '01&61'
+            new_item['id'] = f"ord_{ord_no}_{wh_s}_{idx}_{uuid.uuid4().hex[:6]}"
+        if not new_item.get('wh'):
+            new_item['wh'] = '01&61'
+        normalized.append(new_item)
+    return normalized
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_PERSIST_DIR = os.path.join(APP_DIR, ".persistent_data")
@@ -47,17 +71,16 @@ def safe_write_json(file_path: str, data) -> bool:
         return False
 
 
-def safe_read_json(file_path: str, default=None):
+def safe_read_json(file_path: str, default=_UNSET):
     """Đọc file JSON an toàn, fallback về giá trị mặc định nếu có lỗi."""
-    if default is None:
-        default = {}
+    fallback = {} if default is _UNSET else default
     if not os.path.exists(file_path):
-        return default
+        return fallback
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except Exception:
-        return default
+        return fallback
 
 
 def get_user_queue_file(username: str) -> str:
@@ -76,18 +99,25 @@ def load_queue(username: str, workspace_mode: str = WORKSPACE_PRIVATE) -> List[d
     """
     if workspace_mode == WORKSPACE_SHARED:
         data = safe_read_json(SHARED_QUEUE_FILE, default=[])
-        return data if isinstance(data, list) else []
+        norm = _normalize_queue_items(data)
+        if norm != data:
+            safe_write_json(SHARED_QUEUE_FILE, norm)
+        return norm
     else:
         user_file = get_user_queue_file(username)
         data = safe_read_json(user_file, default=None)
         if data is None:
             # Nếu người dùng mới chưa có hàng chờ riêng, nạp từ hàng chờ chung làm mẫu ban đầu
             shared_data = safe_read_json(SHARED_QUEUE_FILE, default=[])
-            if isinstance(shared_data, list) and len(shared_data) > 0:
-                safe_write_json(user_file, shared_data)
-                return shared_data
+            norm_shared = _normalize_queue_items(shared_data)
+            if len(norm_shared) > 0:
+                safe_write_json(user_file, norm_shared)
+                return norm_shared
             return []
-        return data if isinstance(data, list) else []
+        norm = _normalize_queue_items(data)
+        if norm != data:
+            safe_write_json(user_file, norm)
+        return norm
 
 
 def save_queue(queue: List[dict], username: str, workspace_mode: str = WORKSPACE_PRIVATE) -> bool:
@@ -96,6 +126,7 @@ def save_queue(queue: List[dict], username: str, workspace_mode: str = WORKSPACE
     - Nếu mode == 'private': Lưu vào file cá nhân của người dùng.
     - Nếu mode == 'shared': Lưu vào file chung và cập nhật metadata ai là người sửa đổi cuối.
     """
+    queue = _normalize_queue_items(queue)
     if workspace_mode == WORKSPACE_SHARED:
         success = safe_write_json(SHARED_QUEUE_FILE, queue)
         if success:
