@@ -15,6 +15,7 @@ import shutil
 import datetime
 from typing import List, Dict, Tuple, Optional
 
+__version__ = "2026.11.07.v2"
 _UNSET = object()
 
 

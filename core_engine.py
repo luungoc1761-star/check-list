@@ -25,6 +25,7 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+__version__ = "2026.11.07.v2"
 DEFAULT_WAREHOUSES = ('01', '61')
 
 
