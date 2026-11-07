@@ -18,6 +18,7 @@ Bộ xử lý logic đối soát thông minh BOM Sản Xuất (Production BOM Li
 import io
 import os
 import re
+import math
 import uuid
 import datetime
 import pandas as pd
@@ -25,8 +26,9 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-__version__ = "2026.11.07.v2"
+__version__ = "2026.11.07.v3"
 DEFAULT_WAREHOUSES = ('01', '61')
+EPS = 1e-9
 
 
 def normalize_warehouse_code(val) -> str:
@@ -274,7 +276,7 @@ def parse_product_code(code):
     - Bắt đầu bằng 8: bỏ 8, 4 số tiếp theo là đơn hàng, số tiếp theo là vế (1: Trái, 2: Phải), phần còn lại là Variant.
     - Hỗ trợ thêm định dạng mở rộng (nếu có tiền tố chữ hoặc dấu gạch ngang).
     """
-    code_str = normalize_code(code)
+    code_str = re.sub(r'[\s\-_]', '', normalize_code(code))
     if code_str.startswith('1') and len(code_str) >= 6:
         order = code_str[:4]
         side_raw = code_str[4:6]
@@ -973,7 +975,7 @@ def _select_best_variant_for_order(order_boms: pd.DataFrame, stock_qty_pool: dic
         return requested_variant
         
     best_var = avail_variants[0]
-    best_score = (-1, -1.0)
+    best_score = (-1, -1.0, -1)
     for v in avail_variants:
         sub = order_boms[order_boms['Variant'] == v]
         comp_req = sub.groupby('Component_Code')['Qty'].sum()
@@ -983,9 +985,10 @@ def _select_best_variant_for_order(order_boms: pd.DataFrame, stock_qty_pool: dic
         min_possible = float('inf')
         for c_code, u_qty in comp_req.items():
             s_qty = float(stock_qty_pool.get(c_code, 0.0))
-            if s_qty > 0 and u_qty > 0:
+            u_qty_f = round(float(u_qty), 6)
+            if s_qty > EPS and u_qty_f > EPS:
                 in_stock_cnt += 1
-                possible = s_qty // u_qty
+                possible = float(math.floor((s_qty + EPS) / u_qty_f))
                 if possible < min_possible:
                     min_possible = possible
             else:
@@ -1072,6 +1075,11 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'total_items': 0,
                 'ok_count': 0,
                 'missing_count': 0,
+                'in_stock_count': 0,
+                'max_runnable_fifo': 0,
+                'fifo_bottleneck_code': '',
+                'fifo_bottleneck_desc': '',
+                'fifo_bottleneck_stock': 0.0,
                 'is_fully_ok': False,
                 'summary_table': pd.DataFrame(),
                 'detail_table': pd.DataFrame()
@@ -1080,7 +1088,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             
         order_comp_codes = order_boms['Component_Code'].unique()
         order_stock_pool = {
-            cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_target_whs)
+            cc: round(sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_target_whs), 6)
             for cc in order_comp_codes
         }
         chosen_variant = _select_best_variant_for_order(order_boms, order_stock_pool, variant)
@@ -1103,23 +1111,41 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             if cc not in comp_map:
                 comp_map[cc] = []
             comp_map[cc].append(r)
+
+        in_stock_count = 0
+        min_fifo_sets = float('inf')
+        fifo_bottleneck_code = ''
+        fifo_bottleneck_desc = ''
+        fifo_bottleneck_stock = 0.0
             
         for comp_code in sorted(comp_map.keys()):
             c_rows = comp_map[comp_code]
             comp_desc = c_rows[0]['Component_Desc']
             
-            left_bom_qty = sum(float(r['Qty']) for r in c_rows if r['Side'] == 'Trái')
-            right_bom_qty = sum(float(r['Qty']) for r in c_rows if r['Side'] == 'Phải')
-            other_bom_qty = sum(float(r['Qty']) for r in c_rows if r['Side'] not in ('Trái', 'Phải'))
-            total_bom_unit = left_bom_qty + right_bom_qty + other_bom_qty
+            left_bom_qty = round(sum(float(r['Qty']) for r in c_rows if r['Side'] == 'Trái'), 6)
+            right_bom_qty = round(sum(float(r['Qty']) for r in c_rows if r['Side'] == 'Phải'), 6)
+            other_bom_qty = round(sum(float(r['Qty']) for r in c_rows if r['Side'] not in ('Trái', 'Phải')), 6)
+            total_bom_unit = round(left_bom_qty + right_bom_qty + other_bom_qty, 6)
             
-            req_left = left_bom_qty * qty_left
-            req_right = right_bom_qty * qty_right
-            req_other = other_bom_qty * max(qty_left, qty_right)
-            total_required = req_left + req_right + req_other
+            req_left = round(left_bom_qty * qty_left, 6)
+            req_right = round(right_bom_qty * qty_right, 6)
+            req_other = round(other_bom_qty * max(qty_left, qty_right), 6)
+            total_required = round(req_left + req_right + req_other, 6)
             
-            initial_stock = sum(float(stock_by_wh.get(w, {}).get(comp_code, 0.0)) for w in eff_target_whs)
+            initial_stock = round(sum(float(stock_by_wh.get(w, {}).get(comp_code, 0.0)) for w in eff_target_whs), 6)
             running_stock = initial_stock
+
+            if initial_stock > EPS:
+                in_stock_count += 1
+            if total_bom_unit > EPS:
+                comp_possible_sets = int(math.floor((initial_stock + EPS) / total_bom_unit)) if initial_stock > EPS else 0
+                if comp_possible_sets < min_fifo_sets:
+                    min_fifo_sets = comp_possible_sets
+                    fifo_bottleneck_code = comp_code
+                    fifo_bottleneck_desc = comp_desc
+                    fifo_bottleneck_stock = initial_stock
+            else:
+                comp_possible_sets = 0
             
             c_rows_sorted = sorted(c_rows, key=lambda x: (_get_side_priority(x['Side']), x['Product_Code']))
             comp_allocated = 0.0
@@ -1129,7 +1155,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 b_side = brow['Side']
                 b_pcode = brow['Product_Code']
                 b_pdesc = brow['Component_Desc']
-                b_qty = float(brow['Qty'])
+                b_qty = round(float(brow['Qty']), 6)
                 
                 if b_side == 'Trái':
                     side_order_qty = qty_left
@@ -1138,24 +1164,24 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 else:
                     side_order_qty = max(qty_left, qty_right)
                     
-                row_required = b_qty * side_order_qty
-                row_avail_stock = max(0.0, running_stock)
+                row_required = round(b_qty * side_order_qty, 6)
+                row_avail_stock = round(max(0.0, running_stock), 6)
                 
-                if running_stock >= row_required:
+                if running_stock + EPS >= row_required:
                     row_allocated = row_required
                     row_shortage = 0.0
-                    running_stock -= row_required
+                    running_stock = round(max(0.0, running_stock - row_required), 6)
                     row_status = "OK"
                     row_note = "Đủ hàng"
                 else:
-                    row_allocated = max(0.0, running_stock)
-                    row_shortage = row_required - row_allocated
+                    row_allocated = round(max(0.0, running_stock), 6)
+                    row_shortage = round(max(0.0, row_required - row_allocated), 6)
                     running_stock = 0.0
                     row_status = "THIẾU"
                     row_note = f"Thiếu {int(row_shortage) if row_shortage.is_integer() else row_shortage:g}"
                     
-                comp_allocated += row_allocated
-                comp_shortage += row_shortage
+                comp_allocated = round(comp_allocated + row_allocated, 6)
+                comp_shortage = round(comp_shortage + row_shortage, 6)
                 
                 detail_rows.append({
                     'Kho (WH)': wh_code_str,
@@ -1176,17 +1202,18 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             # Trừ dần tồn kho trên đúng các kho mục tiêu (eff_target_whs) của đơn hàng
             rem_to_deduct = comp_allocated
             for w in eff_target_whs:
-                if rem_to_deduct <= 0:
+                if rem_to_deduct <= EPS:
                     break
                 w_pool = stock_by_wh.get(w)
                 if w_pool and comp_code in w_pool:
-                    avail_w = float(w_pool[comp_code])
-                    if avail_w > 0:
-                        deduct_w = min(avail_w, rem_to_deduct)
-                        w_pool[comp_code] = avail_w - deduct_w
-                        rem_to_deduct -= deduct_w
+                    avail_w = round(float(w_pool[comp_code]), 6)
+                    if avail_w > EPS:
+                        deduct_w = round(min(avail_w, rem_to_deduct), 6)
+                        w_pool[comp_code] = round(max(0.0, avail_w - deduct_w), 6)
+                        rem_to_deduct = round(max(0.0, rem_to_deduct - deduct_w), 6)
             
-            if comp_shortage == 0.0:
+            if comp_shortage <= EPS:
+                comp_shortage = 0.0
                 summary_status = "OK"
                 summary_note = "Đủ hàng"
             else:
@@ -1204,6 +1231,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'SL Cần Phải': req_right,
                 'SL BOM cần chạy': total_required,
                 'Số lượng tồn kho': initial_stock,
+                'SL bộ đáp ứng': comp_possible_sets,
                 'Số lượng cấp': comp_allocated,
                 'Số lượng thiếu': comp_shortage,
                 'Trạng thái': summary_status,
@@ -1219,6 +1247,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         total_items = len(summary_rows)
         ok_count = sum(1 for r in summary_rows if r['Trạng thái'] == 'OK')
         missing_count = total_items - ok_count
+        max_runnable_fifo = 0 if (min_fifo_sets == float('inf') or min_fifo_sets < 0) else int(min_fifo_sets)
         
         results.append({
             'id': item_id,
@@ -1236,12 +1265,222 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             'total_items': total_items,
             'ok_count': ok_count,
             'missing_count': missing_count,
+            'in_stock_count': in_stock_count,
+            'max_runnable_fifo': max_runnable_fifo,
+            'fifo_bottleneck_code': fifo_bottleneck_code,
+            'fifo_bottleneck_desc': fifo_bottleneck_desc,
+            'fifo_bottleneck_stock': fifo_bottleneck_stock,
             'is_fully_ok': (missing_count == 0 and total_items > 0),
             'summary_table': df_summary,
             'detail_table': df_detail
         })
         
     return results
+
+
+def optimize_fifo_queue(orders_queue, df_bom, df_stock):
+    """
+    Sắp xếp tối ưu hàng chờ FIFO tốc độ cao (< 0.01s) sao cho số lượng đơn ĐỦ 100% VẬT TƯ đạt tối đa:
+    - Ở mỗi bước chọn đơn tiếp theo:
+      + Ưu tiên đơn đủ 100% vật tư theo số lượng đặt (order_qty) trên tồn kho còn lại.
+      + Tiếp theo ưu tiên đơn có số bộ chạy tối đa (max_runnable_fifo) cao nhất và tỷ lệ đủ mã cao nhất.
+    """
+    if not orders_queue or len(orders_queue) <= 1 or df_bom is None:
+        return list(orders_queue)
+
+    stock_by_wh = {}
+    if df_stock is not None and len(df_stock) > 0:
+        temp_stock = df_stock[['Stock_Code', 'Qty']].copy()
+        temp_stock['Warehouse_Norm'] = (
+            df_stock['Warehouse'].apply(normalize_warehouse_code)
+            if 'Warehouse' in df_stock.columns else ''
+        )
+        for (wh_val, scode), grp_qty in temp_stock.groupby(['Warehouse_Norm', 'Stock_Code'])['Qty'].sum().items():
+            if wh_val not in stock_by_wh:
+                stock_by_wh[wh_val] = {}
+            stock_by_wh[wh_val][scode] = round(float(grp_qty), 6)
+
+    bom_by_order = {ord_no: grp for ord_no, grp in df_bom.groupby('Order_No', sort=False)}
+    prepared = []
+    for orig_idx, item in enumerate(orders_queue):
+        order_no = str(item.get('order_no', '')).strip()
+        order_qty = float(item.get('qty', 0))
+        qty_left = float(item.get('qty_left', order_qty))
+        qty_right = float(item.get('qty_right', order_qty))
+        target_whs = parse_target_warehouses(item.get('wh'))
+        eff_whs = list(target_whs)
+        if '' in stock_by_wh and '' not in eff_whs:
+            eff_whs.append('')
+        if target_whs == DEFAULT_WAREHOUSES and not any(w in stock_by_wh for w in eff_whs) and stock_by_wh:
+            eff_whs = list(stock_by_wh.keys())
+
+        order_boms = bom_by_order.get(order_no)
+        comp_reqs = []
+        if order_boms is not None and len(order_boms) > 0:
+            order_comp_codes = order_boms['Component_Code'].unique()
+            pool = {cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_whs) for cc in order_comp_codes}
+            chosen_var = _select_best_variant_for_order(order_boms, pool, item.get('variant'))
+            sub = order_boms[order_boms['Variant'] == chosen_var]
+            if len(sub) == 0:
+                sub = order_boms
+            for cc, grp in sub.groupby('Component_Code', sort=False):
+                l_q = round(float(grp[grp['Side'] == 'Trái']['Qty'].sum()), 6)
+                r_q = round(float(grp[grp['Side'] == 'Phải']['Qty'].sum()), 6)
+                o_q = round(float(grp[~grp['Side'].isin(['Trái', 'Phải'])]['Qty'].sum()), 6)
+                unit_q = round(l_q + r_q + o_q, 6)
+                tot_req = round(l_q * qty_left + r_q * qty_right + o_q * max(qty_left, qty_right), 6)
+                comp_reqs.append((cc, unit_q, tot_req))
+
+        prepared.append({
+            'orig_idx': orig_idx,
+            'item': dict(item),
+            'eff_whs': eff_whs,
+            'comp_reqs': comp_reqs
+        })
+
+    ordered_items = []
+    remaining = list(prepared)
+    while remaining:
+        best_i = 0
+        best_score = None
+        for i, cand in enumerate(remaining):
+            eff_whs = cand['eff_whs']
+            creqs = cand['comp_reqs']
+            if not creqs:
+                score = (-1, 0, 0, 0.0, -cand['orig_idx'])
+            else:
+                ok_cnt = 0
+                min_sets = float('inf')
+                for cc, unit_q, tot_req in creqs:
+                    avail = round(sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_whs), 6)
+                    if avail + EPS >= tot_req:
+                        ok_cnt += 1
+                    if unit_q > EPS:
+                        sets = int(math.floor((avail + EPS) / unit_q)) if avail > EPS else 0
+                        if sets < min_sets:
+                            min_sets = sets
+                max_run = 0 if min_sets == float('inf') else int(min_sets)
+                is_full_ok = 1 if ok_cnt == len(creqs) else 0
+                has_run = 1 if max_run > 0 else 0
+                ok_ratio = ok_cnt / len(creqs)
+                if is_full_ok:
+                    score = (1, -cand['orig_idx'], 1, max_run, ok_ratio)
+                else:
+                    score = (0, has_run, max_run, ok_ratio, -cand['orig_idx'])
+            if best_score is None or score > best_score:
+                best_score = score
+                best_i = i
+
+        chosen = remaining.pop(best_i)
+        ordered_items.append(chosen['item'])
+        # Trừ tồn kho cho đơn vừa chọn
+        for cc, unit_q, tot_req in chosen['comp_reqs']:
+            rem_deduct = tot_req
+            for w in chosen['eff_whs']:
+                if rem_deduct <= EPS:
+                    break
+                w_pool = stock_by_wh.get(w)
+                if w_pool and cc in w_pool:
+                    avail_w = float(w_pool[cc])
+                    if avail_w > EPS:
+                        d_w = min(avail_w, rem_deduct)
+                        w_pool[cc] = round(max(0.0, avail_w - d_w), 6)
+                        rem_deduct = round(max(0.0, rem_deduct - d_w), 6)
+
+    return ordered_items
+
+
+def cap_queue_to_runnable_fifo(orders_queue, df_bom, df_stock):
+    """
+    Tự động điều chỉnh số lượng các đơn trong hàng chờ FIFO về mức bộ đồng bộ tối đa chạy được ngay (max_runnable_fifo)
+    khi 0 < max_runnable_fifo < order_qty. Xử lý tuần tự tốc độ cao (< 0.02s).
+    Trả về: (updated_queue, adjusted_count)
+    """
+    if not orders_queue or df_bom is None:
+        return list(orders_queue), 0
+
+    stock_by_wh = {}
+    if df_stock is not None and len(df_stock) > 0:
+        temp_stock = df_stock[['Stock_Code', 'Qty']].copy()
+        temp_stock['Warehouse_Norm'] = (
+            df_stock['Warehouse'].apply(normalize_warehouse_code)
+            if 'Warehouse' in df_stock.columns else ''
+        )
+        for (wh_val, scode), grp_qty in temp_stock.groupby(['Warehouse_Norm', 'Stock_Code'])['Qty'].sum().items():
+            if wh_val not in stock_by_wh:
+                stock_by_wh[wh_val] = {}
+            stock_by_wh[wh_val][scode] = round(float(grp_qty), 6)
+
+    bom_by_order = {ord_no: grp for ord_no, grp in df_bom.groupby('Order_No', sort=False)}
+    updated_queue = []
+    adjusted_cnt = 0
+
+    for item in orders_queue:
+        new_item = dict(item)
+        order_no = str(new_item.get('order_no', '')).strip()
+        order_qty = float(new_item.get('qty', 0))
+        qty_left = float(new_item.get('qty_left', order_qty))
+        qty_right = float(new_item.get('qty_right', order_qty))
+        target_whs = parse_target_warehouses(new_item.get('wh'))
+        eff_whs = list(target_whs)
+        if '' in stock_by_wh and '' not in eff_whs:
+            eff_whs.append('')
+        if target_whs == DEFAULT_WAREHOUSES and not any(w in stock_by_wh for w in eff_whs) and stock_by_wh:
+            eff_whs = list(stock_by_wh.keys())
+
+        order_boms = bom_by_order.get(order_no)
+        if order_boms is not None and len(order_boms) > 0:
+            order_comp_codes = order_boms['Component_Code'].unique()
+            pool = {cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_whs) for cc in order_comp_codes}
+            chosen_var = _select_best_variant_for_order(order_boms, pool, new_item.get('variant'))
+            sub = order_boms[order_boms['Variant'] == chosen_var]
+            if len(sub) == 0:
+                sub = order_boms
+
+            comp_reqs = []
+            min_sets = float('inf')
+            all_ok = True
+            for cc, grp in sub.groupby('Component_Code', sort=False):
+                l_q = round(float(grp[grp['Side'] == 'Trái']['Qty'].sum()), 6)
+                r_q = round(float(grp[grp['Side'] == 'Phải']['Qty'].sum()), 6)
+                o_q = round(float(grp[~grp['Side'].isin(['Trái', 'Phải'])]['Qty'].sum()), 6)
+                unit_q = round(l_q + r_q + o_q, 6)
+                tot_req = round(l_q * qty_left + r_q * qty_right + o_q * max(qty_left, qty_right), 6)
+                avail = round(sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in eff_whs), 6)
+                if avail + EPS < tot_req:
+                    all_ok = False
+                if unit_q > EPS:
+                    sets = int(math.floor((avail + EPS) / unit_q)) if avail > EPS else 0
+                    if sets < min_sets:
+                        min_sets = sets
+                comp_reqs.append((cc, unit_q, l_q, r_q, o_q))
+
+            max_run = 0 if min_sets == float('inf') else int(min_sets)
+            if (not all_ok) and (0 < max_run < order_qty):
+                new_item['qty'] = float(max_run)
+                new_item['qty_left'] = float(max_run)
+                new_item['qty_right'] = float(max_run)
+                qty_left = float(max_run)
+                qty_right = float(max_run)
+                adjusted_cnt += 1
+
+            # Trừ tồn kho theo số lượng sau khi đã chốt
+            for cc, unit_q, l_q, r_q, o_q in comp_reqs:
+                rem_deduct = round(l_q * qty_left + r_q * qty_right + o_q * max(qty_left, qty_right), 6)
+                for w in eff_whs:
+                    if rem_deduct <= EPS:
+                        break
+                    w_pool = stock_by_wh.get(w)
+                    if w_pool and cc in w_pool:
+                        avail_w = float(w_pool[cc])
+                        if avail_w > EPS:
+                            d_w = min(avail_w, rem_deduct)
+                            w_pool[cc] = round(max(0.0, avail_w - d_w), 6)
+                            rem_deduct = round(max(0.0, rem_deduct - d_w), 6)
+
+        updated_queue.append(new_item)
+
+    return updated_queue, adjusted_cnt
 
 
 def export_order_to_excel(order_result):
@@ -1400,7 +1639,7 @@ def export_all_orders_to_excel(all_results):
     align_header = Alignment(horizontal="center", vertical="center", wrap_text=True)
     
     ws_idx.cell(row=1, column=1, value="BẢNG TỔNG KẾT ĐỐI SOÁT VẬT TƯ CÁC ĐƠN HÀNG (FIFO)").font = font_title
-    headers_idx = ["STT", "Mã đơn hàng", "Kho (WH)", "Sản phẩm", "Số lượng đặt", "Tổng số mã LK", "Số mã ĐỦ", "Số mã THIẾU", "Đánh giá chung"]
+    headers_idx = ["STT", "Mã đơn hàng", "Kho (WH)", "Sản phẩm", "Số lượng đặt", "SL tối đa chạy được (FIFO)", "Tổng số mã LK", "Số mã ĐỦ", "Số mã THIẾU", "Đánh giá chung"]
     
     for c_i, h in enumerate(headers_idx, 1):
         cell = ws_idx.cell(row=3, column=c_i, value=h)
@@ -1415,6 +1654,7 @@ def export_all_orders_to_excel(all_results):
         is_ok = r.get('is_fully_ok', False)
         row_fill = fill_ok if is_ok else fill_missing
         row_font = font_ok if is_ok else font_missing
+        max_run_fifo = r.get('max_runnable_fifo', 0)
         
         vals = [
             r['stt'],
@@ -1422,10 +1662,11 @@ def export_all_orders_to_excel(all_results):
             r.get('wh', '01&61'),
             r.get('product_title', ''),
             r['order_qty'],
+            max_run_fifo,
             r['total_items'],
             r['ok_count'],
             r['missing_count'],
-            "ĐỦ VẬT TƯ (OK)" if is_ok else f"THIẾU {r['missing_count']} MÃ"
+            "ĐỦ VẬT TƯ (OK)" if is_ok else (f"THIẾU {r['missing_count']} MÃ (Chạy được {max_run_fifo:g} bộ)" if max_run_fifo > 0 else f"THIẾU {r['missing_count']} MÃ")
         ]
         
         for c_i, val in enumerate(vals, 1):
@@ -1581,8 +1822,8 @@ def analyze_orders_readiness(df_bom, df_stock, wh_spec=None):
     )
     
     grouped['stock_qty'] = grouped['Component_Code'].map(stock_pool).fillna(0.0)
-    grouped['has_stock'] = (grouped['stock_qty'] > 0) & (grouped['unit_bom'] > 0)
-    grouped['possible_qty'] = (grouped['stock_qty'] // grouped['unit_bom']).where(grouped['has_stock'], 0.0)
+    grouped['has_stock'] = (grouped['stock_qty'] > EPS) & (grouped['unit_bom'] > EPS)
+    grouped['possible_qty'] = ((grouped['stock_qty'] + EPS) // grouped['unit_bom']).where(grouped['has_stock'], 0.0)
     
     ready_orders = []
     not_ready_orders = []
@@ -1803,6 +2044,9 @@ def export_readiness_report_to_excel(readiness_data):
     wb.save(out)
     out.seek(0)
     return out.getvalue()
+
+
+export_ready_orders_to_excel = export_readiness_report_to_excel
 
 
 def find_similar_stock_substitutes(missing_code: str, all_stock_codes: set, stock_summary: dict) -> list:
@@ -2104,3 +2348,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
         'agent_payload': agent_payload,
         'agent_markdown_brief': "\n".join(md_lines)
     }
+
+
+verify_data_integrity = check_data_integrity
+analyze_smart_reconciliation = generate_smart_reconciliation_insights
