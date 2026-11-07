@@ -24,6 +24,106 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
+DEFAULT_WAREHOUSES = ('01', '61')
+
+
+def normalize_warehouse_code(val) -> str:
+    """
+    Chuẩn hóa mã kho (Warehouse / WH):
+    - Xử lý kiểu số nguyên / số thực từ Excel (VD: 1 -> '01', 1.0 -> '01', 61.0 -> '61').
+    - Loại bỏ tiền tố 'KHO', 'WH', 'WAREHOUSE' nếu người dùng nhập kèm.
+    - Tự động thêm số 0 ở đầu cho mã kho 1 chữ số (VD: '1' -> '01').
+    """
+    if val is None or pd.isna(val):
+        return ""
+    if isinstance(val, (int, float)):
+        if isinstance(val, float) and val.is_integer():
+            val = int(val)
+        s = str(val).strip()
+    else:
+        s = str(val).strip()
+    for ch in ('\u00A0', '\ufeff', '\u200b', '\u200c', '\u200d', '\r', '\n', '\t'):
+        s = s.replace(ch, '')
+    s = s.strip()
+    if not s or s.lower() in ('nan', 'none', 'null', ''):
+        return ""
+    if s.endswith('.0') and s[:-2].isdigit():
+        s = s[:-2]
+    s = re.sub(r'^[^a-zA-Z0-9]+', '', s).strip()
+    s = re.sub(r'^(warehouse|kho|wh)\s*[-_:]?\s*', '', s, flags=re.IGNORECASE).strip()
+    if s.endswith('.0') and s[:-2].isdigit():
+        s = s[:-2]
+    if s.isdigit() and len(s) == 1:
+        s = s.zfill(2)
+    return s.upper()
+
+
+def parse_target_warehouses(wh_spec=None) -> tuple:
+    """
+    Phân tích thông tin kho cần đối soát:
+    - Nếu người dùng hoặc Kế hoạch chỉ định kho cụ thể (VD: '01', '61', '02'...) -> Trả về đúng kho đó, ví dụ ('01',).
+    - Nếu không chọn kho nào (rỗng, None, 'Mặc định', '01&61'...) -> Mặc định trả về ('01', '61').
+      TUYỆT ĐỐI KHÔNG lấy dữ liệu ở kho khác ngoài kho được chọn (hoặc 01 & 61 khi mặc định).
+    """
+    if wh_spec is None:
+        return DEFAULT_WAREHOUSES
+    if isinstance(wh_spec, (list, tuple, set)):
+        cleaned = []
+        for item in wh_spec:
+            for sub in parse_target_warehouses(item):
+                if sub not in cleaned:
+                    cleaned.append(sub)
+        return tuple(cleaned) if cleaned else DEFAULT_WAREHOUSES
+    if pd.isna(wh_spec):
+        return DEFAULT_WAREHOUSES
+    s = str(wh_spec).strip()
+    if not s or s.lower() in ('nan', 'none', 'null', 'all', 'default', 'mặc định', 'mac dinh', 'tất cả', 'tat ca'):
+        return DEFAULT_WAREHOUSES
+    if 'mặc định' in s.lower() or 'mac dinh' in s.lower() or 'default' in s.lower():
+        return DEFAULT_WAREHOUSES
+    parts = re.split(r'[&,/+;]+', s)
+    cleaned = []
+    for p in parts:
+        code = normalize_warehouse_code(p)
+        if code and code not in cleaned:
+            cleaned.append(code)
+    return tuple(cleaned) if cleaned else DEFAULT_WAREHOUSES
+
+
+def format_warehouse_code(wh_spec=None) -> str:
+    """Chuẩn hóa chuỗi mã kho lưu trữ và hiển thị (VD: '01', '61', '01&61')."""
+    whs = parse_target_warehouses(wh_spec)
+    return "&".join(whs)
+
+
+def filter_stock_by_warehouses(df_stock: pd.DataFrame, wh_spec=None) -> pd.DataFrame:
+    """
+    Lọc dữ liệu tồn kho theo đúng kho được chọn (hoặc mặc định 2 kho '01' và '61' nếu không chọn kho).
+    TUYỆT ĐỐI KHÔNG lấy dữ liệu ở kho khác để đối soát.
+    """
+    if df_stock is None or len(df_stock) == 0:
+        return df_stock
+    target_whs = parse_target_warehouses(wh_spec)
+    if 'Warehouse' not in df_stock.columns:
+        return df_stock.iloc[0:0].copy()
+    wh_col = df_stock['Warehouse'].apply(normalize_warehouse_code)
+    return df_stock[wh_col.isin(target_whs)].copy()
+
+
+def get_available_warehouses(df_stock: pd.DataFrame = None, df_plan: pd.DataFrame = None) -> list:
+    """Lấy danh sách các mã kho hiện có (luôn đảm bảo có '01' và '61' ở đầu danh sách)."""
+    wh_list = ['01', '61']
+    if df_stock is not None and 'Warehouse' in df_stock.columns:
+        for w in sorted(df_stock['Warehouse'].apply(normalize_warehouse_code).unique().tolist()):
+            if w and w not in wh_list:
+                wh_list.append(w)
+    if df_plan is not None and 'WH' in df_plan.columns:
+        for w_raw in df_plan['WH'].dropna().unique().tolist():
+            for w in parse_target_warehouses(w_raw):
+                if w and w not in wh_list:
+                    wh_list.append(w)
+    return wh_list
+
 
 def normalize_code(val) -> str:
     """
@@ -142,8 +242,9 @@ def find_plan_header_row_from_df(df_raw, max_rows=25):
 def load_plan_data(file_source):
     """
     Đọc file Kế hoạch sản xuất (.xlsx / .xls / .csv):
-    - Tự động lọc dữ liệu quan trọng: MODEL, Qty và Due date (nếu có).
+    - Tự động lọc dữ liệu quan trọng: MODEL, Qty, WH (Kho) và Due date (nếu có).
     - Giải mã cột MODEL ra Mã đơn hàng (Order_No), Vế (Trái/Phải) và Phiên bản (Variant).
+    - Chuẩn hóa cột WH (nếu không điền kho thì mặc định '01&61').
     """
     df_raw = _read_tabular_source(file_source, header=None, nrows=25)
     h_idx = find_plan_header_row_from_df(df_raw)
@@ -158,6 +259,9 @@ def load_plan_data(file_source):
         elif any(k in c_clean for k in ['qty', 'quantity', 'order qty', 'plan qty', 'số lượng', 'sl', 'số bộ']):
             if 'Qty' not in col_map.values():
                 col_map[c] = 'Qty'
+        elif c_clean in ('wh', 'warehouse', 'kho', 'mã kho', 'ma kho', 'wh code', 'wh_code', 'storage', 'plant') or any(k in c_clean for k in ['warehouse', 'mã kho', 'tên kho']) or re.search(r'\b(wh|kho)\b', c_clean):
+            if 'WH' not in col_map.values():
+                col_map[c] = 'WH'
         elif any(k in c_clean for k in ['due date', 'due_date', 'delivery', 'ngày', 'hạn', 'date']):
             if 'Due_Date' not in col_map.values():
                 col_map[c] = 'Due_Date'
@@ -177,6 +281,25 @@ def load_plan_data(file_source):
     df['Side'] = [p[1] for p in parsed]
     df['Variant'] = [p[2] for p in parsed]
     
+    if 'WH' in df.columns:
+        raw_wh_list = []
+        for v in df['WH']:
+            if v is None or pd.isna(v) or str(v).strip().lower() in ('', 'nan', 'none'):
+                raw_wh_list.append('')
+            else:
+                raw_wh_list.append(format_warehouse_code(v))
+        # Hỗ trợ trường hợp gộp ô (merged cells) trong Excel: dòng vế thứ 2 cùng đơn kế thừa WH của dòng vế đầu nếu để trống
+        ord_list = df['Order_No'].tolist()
+        for i in range(len(raw_wh_list)):
+            if not raw_wh_list[i]:
+                if i > 0 and ord_list[i] == ord_list[i - 1] and raw_wh_list[i - 1]:
+                    raw_wh_list[i] = raw_wh_list[i - 1]
+                elif i + 1 < len(raw_wh_list) and ord_list[i] == ord_list[i + 1] and raw_wh_list[i + 1]:
+                    raw_wh_list[i] = raw_wh_list[i + 1]
+        df['WH'] = [w if w else '01&61' for w in raw_wh_list]
+    else:
+        df['WH'] = '01&61'
+    
     if 'Due_Date' in df.columns:
         df['Due_Date'] = df['Due_Date'].fillna('').astype(str).str.slice(0, 10)
         df['Due_Date'] = df['Due_Date'].replace({'NaT': '', 'nan': '', 'None': ''})
@@ -190,7 +313,7 @@ def extract_orders_from_plan(df_plan):
     """
     Chuyển đổi dữ liệu từ File Kế hoạch thành danh sách hàng chờ đối soát FIFO.
     Giữ nguyên thứ tự ưu tiên từ trên xuống dưới của File Kế hoạch.
-    Mỗi đơn hàng tự động ghép vế Trái và Phải từ các dòng Model tương ứng.
+    Mỗi đơn hàng tự động ghép vế Trái và Phải theo đúng Kho (WH) và số lượng mà kho đó cần.
     """
     orders_queue = []
     seen = {}
@@ -202,28 +325,34 @@ def extract_orders_from_plan(df_plan):
         variant = str(row['Variant']).strip() if pd.notna(row['Variant']) else ''
         model = str(row['MODEL']).strip()
         due_date = str(row.get('Due_Date', '')).strip()
+        wh_code = format_warehouse_code(row.get('WH', '01&61'))
         
-        if ord_no not in seen:
+        plan_key = (ord_no, wh_code)
+        if plan_key not in seen:
             item = {
-                'id': f'plan_{ord_no}_{len(orders_queue)+1}_{uuid.uuid4().hex[:6]}',
+                'id': f'plan_{ord_no}_{wh_code}_{len(orders_queue)+1}_{uuid.uuid4().hex[:6]}',
                 'order_no': ord_no,
+                'wh': wh_code,
                 'qty': qty,
-                'qty_left': qty if side == 'Trái' else 0.0,
-                'qty_right': qty if side == 'Phải' else 0.0,
+                'qty_left': qty if side == 'Trái' else (qty if side not in ('Trái', 'Phải') else 0.0),
+                'qty_right': qty if side == 'Phải' else (qty if side not in ('Trái', 'Phải') else 0.0),
                 'variant': variant,
                 'due_date': due_date,
                 'models': {side: model},
                 'source': 'Kế hoạch',
                 'created_at': due_date if due_date else 'Kế hoạch'
             }
-            seen[ord_no] = item
+            seen[plan_key] = item
             orders_queue.append(item)
         else:
-            item = seen[ord_no]
+            item = seen[plan_key]
             if side == 'Trái':
-                item['qty_left'] = qty
+                item['qty_left'] = (item['qty_left'] + qty) if item['qty_left'] > 0 else qty
             elif side == 'Phải':
-                item['qty_right'] = qty
+                item['qty_right'] = (item['qty_right'] + qty) if item['qty_right'] > 0 else qty
+            else:
+                item['qty_left'] = max(item['qty_left'], qty)
+                item['qty_right'] = max(item['qty_right'], qty)
             item['models'][side] = model
             item['qty'] = max(item['qty_left'], item['qty_right'])
             if variant and not item.get('variant'):
@@ -373,11 +502,16 @@ def load_stock_data(file_source):
     
     df['Qty'] = parse_numeric_qty(df['Qty'])
     
-    for c in ['BATCH', 'BIN', 'Warehouse']:
+    for c in ['BATCH', 'BIN']:
         if c in df.columns:
             df[c] = df[c].fillna('').astype(str).str.strip()
         else:
             df[c] = ''
+            
+    if 'Warehouse' in df.columns:
+        df['Warehouse'] = df['Warehouse'].apply(normalize_warehouse_code)
+    else:
+        df['Warehouse'] = ''
             
     return df
 
@@ -474,12 +608,25 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
     """
     Tính toán đối soát BOM và tồn kho theo cơ chế FIFO cho danh sách đơn hàng chờ.
     Đã được tối ưu hóa hiệu năng cao (~50x nhanh hơn, xử lý tức thì < 0.12s):
+    - Đối soát đúng theo kho (WH) mà đơn hàng yêu cầu (ví dụ kho '01' lấy đúng kho '01';
+      nếu không chọn kho thì mặc định lấy đúng 2 kho '01' & '61', TUYỆT ĐỐI KHÔNG lấy dữ liệu ở kho khác).
     - Lấy đầy đủ định mức Trái và Phải từ BOM (tự động chọn Variant tối ưu hoặc theo Kế hoạch).
     - Nhân số lượng đơn hàng với định mức BOM.
-    - So sánh với tồn kho khả dụng hiện tại.
+    - So sánh với tồn kho khả dụng hiện tại của kho tương ứng.
     - Ưu tiên cấp liệu cho đơn hàng nhập trước, trừ dần tồn kho (Trái trước - Phải sau).
     """
-    stock_qty_pool = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
+    stock_by_wh = {}
+    if df_stock is not None and len(df_stock) > 0:
+        temp_stock = df_stock[['Stock_Code', 'Qty']].copy()
+        temp_stock['Warehouse_Norm'] = (
+            df_stock['Warehouse'].apply(normalize_warehouse_code)
+            if 'Warehouse' in df_stock.columns else ''
+        )
+        for (wh_val, scode), grp_qty in temp_stock.groupby(['Warehouse_Norm', 'Stock_Code'])['Qty'].sum().items():
+            if wh_val not in stock_by_wh:
+                stock_by_wh[wh_val] = {}
+            stock_by_wh[wh_val][scode] = float(grp_qty)
+
     results = []
     
     # Pre-group BOM theo Order_No để tra cứu O(1) thay vì quét lại toàn bộ DataFrame
@@ -495,6 +642,8 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
         created_at = item.get('created_at', '')
         models_map = item.get('models', {})
         due_date = item.get('due_date', '')
+        target_whs = parse_target_warehouses(item.get('wh'))
+        wh_code_str = "&".join(target_whs)
         
         order_boms = bom_by_order.get(order_no)
         if order_boms is None or len(order_boms) == 0:
@@ -502,6 +651,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 'id': item_id,
                 'stt': idx,
                 'order_no': order_no,
+                'wh': wh_code_str,
                 'order_qty': order_qty,
                 'qty_left': qty_left,
                 'qty_right': qty_right,
@@ -518,7 +668,12 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             })
             continue
             
-        chosen_variant = _select_best_variant_for_order(order_boms, stock_qty_pool, variant)
+        order_comp_codes = order_boms['Component_Code'].unique()
+        order_stock_pool = {
+            cc: sum(float(stock_by_wh.get(w, {}).get(cc, 0.0)) for w in target_whs)
+            for cc in order_comp_codes
+        }
+        chosen_variant = _select_best_variant_for_order(order_boms, order_stock_pool, variant)
         bom_order = order_boms[order_boms['Variant'] == chosen_variant]
         if len(bom_order) == 0:
             bom_order = order_boms
@@ -553,7 +708,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             req_other = other_bom_qty * max(qty_left, qty_right)
             total_required = req_left + req_right + req_other
             
-            initial_stock = float(stock_qty_pool.get(comp_code, 0.0))
+            initial_stock = sum(float(stock_by_wh.get(w, {}).get(comp_code, 0.0)) for w in target_whs)
             running_stock = initial_stock
             
             c_rows_sorted = sorted(c_rows, key=lambda x: (_get_side_priority(x['Side']), x['Product_Code']))
@@ -593,6 +748,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 comp_shortage += row_shortage
                 
                 detail_rows.append({
+                    'Kho (WH)': wh_code_str,
                     'Vế': b_side,
                     'Mã sản phẩm (Product Code)': b_pcode,
                     'ITEM CODE': comp_code,
@@ -607,7 +763,18 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                     'Ghi chú': row_note
                 })
             
-            stock_qty_pool[comp_code] = running_stock
+            # Trừ dần tồn kho trên đúng các kho mục tiêu (target_whs) của đơn hàng
+            rem_to_deduct = comp_allocated
+            for w in target_whs:
+                if rem_to_deduct <= 0:
+                    break
+                w_pool = stock_by_wh.get(w)
+                if w_pool and comp_code in w_pool:
+                    avail_w = float(w_pool[comp_code])
+                    if avail_w > 0:
+                        deduct_w = min(avail_w, rem_to_deduct)
+                        w_pool[comp_code] = avail_w - deduct_w
+                        rem_to_deduct -= deduct_w
             
             if comp_shortage == 0.0:
                 summary_status = "OK"
@@ -617,6 +784,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
                 summary_note = f"Thiếu {int(comp_shortage) if comp_shortage.is_integer() else comp_shortage:g}"
                 
             summary_rows.append({
+                'Kho (WH)': wh_code_str,
                 'ITEM CODE': comp_code,
                 'DESCRIPTION (tên mô tả)': comp_desc,
                 'Định mức Trái': left_bom_qty,
@@ -646,6 +814,7 @@ def calculate_inventory_allocation(orders_queue, df_bom, df_stock):
             'id': item_id,
             'stt': idx,
             'order_no': order_no,
+            'wh': wh_code_str,
             'order_qty': order_qty,
             'qty_left': qty_left,
             'qty_right': qty_right,
@@ -705,9 +874,10 @@ def export_order_to_excel(order_result):
     order_no = order_result['order_no']
     order_qty = order_result['order_qty']
     p_title = order_result.get('product_title', '')
+    wh_label = order_result.get('wh', '01&61')
     
-    ws1.cell(row=1, column=1, value=f"KẾT QUẢ ĐỐI SOÁT TỒN KHO - ĐƠN HÀNG: {order_no} ({p_title})").font = font_title
-    ws1.cell(row=2, column=1, value=f"Số lượng sản xuất: {order_qty:g} bộ (Trái + Phải) | Phiên bản BOM: {order_result.get('variant', '')} | Tổng linh kiện: {order_result['total_items']} | ĐỦ: {order_result['ok_count']} | THIẾU: {order_result['missing_count']}").font = font_sub
+    ws1.cell(row=1, column=1, value=f"KẾT QUẢ ĐỐI SOÁT TỒN KHO - ĐƠN HÀNG: {order_no} ({p_title}) - KHO: {wh_label}").font = font_title
+    ws1.cell(row=2, column=1, value=f"Kho đối soát (WH): {wh_label} | Số lượng sản xuất: {order_qty:g} bộ (Trái + Phải) | Phiên bản BOM: {order_result.get('variant', '')} | Tổng linh kiện: {order_result['total_items']} | ĐỦ: {order_result['ok_count']} | THIẾU: {order_result['missing_count']}").font = font_sub
     
     start_r1 = 4
     headers1 = list(df1.columns)
@@ -746,8 +916,8 @@ def export_order_to_excel(order_result):
         
     # ===== SHEET 2 =====
     df2 = order_result['detail_table']
-    ws2.cell(row=1, column=1, value=f"CHI TIẾT BOM TRÁI & PHẢI - ĐƠN HÀNG: {order_no}").font = font_title
-    ws2.cell(row=2, column=1, value=f"Số lượng đơn hàng: {order_qty:g} | Định mức cho từng vế nhân với số lượng đơn (Trừ vế Trái trước - Phải sau)").font = font_sub
+    ws2.cell(row=1, column=1, value=f"CHI TIẾT BOM TRÁI & PHẢI - ĐƠN HÀNG: {order_no} (KHO: {wh_label})").font = font_title
+    ws2.cell(row=2, column=1, value=f"Kho đối soát (WH): {wh_label} | Số lượng đơn hàng: {order_qty:g} | Định mức cho từng vế nhân với số lượng đơn (Trừ vế Trái trước - Phải sau)").font = font_sub
     
     start_r2 = 4
     headers2 = list(df2.columns)
@@ -820,7 +990,7 @@ def export_all_orders_to_excel(all_results):
     align_header = Alignment(horizontal="center", vertical="center", wrap_text=True)
     
     ws_idx.cell(row=1, column=1, value="BẢNG TỔNG KẾT ĐỐI SOÁT VẬT TƯ CÁC ĐƠN HÀNG (FIFO)").font = font_title
-    headers_idx = ["STT", "Mã đơn hàng", "Sản phẩm", "Số lượng đặt", "Tổng số mã LK", "Số mã ĐỦ", "Số mã THIẾU", "Đánh giá chung"]
+    headers_idx = ["STT", "Mã đơn hàng", "Kho (WH)", "Sản phẩm", "Số lượng đặt", "Tổng số mã LK", "Số mã ĐỦ", "Số mã THIẾU", "Đánh giá chung"]
     
     for c_i, h in enumerate(headers_idx, 1):
         cell = ws_idx.cell(row=3, column=c_i, value=h)
@@ -839,6 +1009,7 @@ def export_all_orders_to_excel(all_results):
         vals = [
             r['stt'],
             r['order_no'],
+            r.get('wh', '01&61'),
             r.get('product_title', ''),
             r['order_qty'],
             r['total_items'],
@@ -863,10 +1034,10 @@ def export_all_orders_to_excel(all_results):
     # Sheet 2: Chi tiết tất cả các đơn hàng (Trái trước, Phải sau)
     ws_all_det = wb.create_sheet(title="Chi_Tiet_BOM_Tat_Ca_Don")
     ws_all_det.cell(row=1, column=1, value="CHI TIẾT TỔNG HỢP BOM TRÁI & PHẢI TẤT CẢ CÁC ĐƠN HÀNG (FIFO)").font = font_title
-    ws_all_det.cell(row=2, column=1, value="Cơ chế FIFO: Ưu tiên đơn hàng trên trước, trừ dần vế Trái trước - vế Phải sau").font = Font(name="Segoe UI", size=10, italic=True, color="4B5563")
+    ws_all_det.cell(row=2, column=1, value="Cơ chế FIFO: Ưu tiên đơn hàng trên trước, đối soát theo đúng Kho (WH), trừ dần vế Trái trước - vế Phải sau").font = Font(name="Segoe UI", size=10, italic=True, color="4B5563")
     
     headers_all_det = [
-        "STT Đơn", "Mã đơn hàng", "Vế", "Mã sản phẩm (Product Code)",
+        "STT Đơn", "Mã đơn hàng", "Kho (WH)", "Vế", "Mã sản phẩm (Product Code)",
         "ITEM CODE", "DESCRIPTION (tên mô tả)", "Định mức BOM",
         "Số lượng đơn", "Số lượng cần", "Tồn kho khả dụng", "Số lượng cấp",
         "Số lượng thiếu", "Trạng thái", "Ghi chú"
@@ -895,6 +1066,7 @@ def export_all_orders_to_excel(all_results):
             row_vals = [
                 r['stt'],
                 r['order_no'],
+                r.get('wh', '01&61'),
                 row_item['Vế'],
                 row_item['Mã sản phẩm (Product Code)'],
                 row_item['ITEM CODE'],
@@ -928,7 +1100,8 @@ def export_all_orders_to_excel(all_results):
     # Tạo các sheet con cho từng đơn (đảm bảo tên sheet không trùng nếu 1 đơn xuất hiện 2 lần trong queue)
     used_sheet_names = set(wb.sheetnames)
     for r in all_results:
-        base_sname = f"DH_{r['order_no']}"[:28]
+        wh_sfx = r.get('wh', '01&61').replace('&', '_')
+        base_sname = f"DH_{r['order_no']}_K{wh_sfx}"[:28]
         sheet_name = base_sname
         if sheet_name in used_sheet_names:
             sheet_name = f"DH_{r['order_no']}_{r['stt']}"[:31]
@@ -937,8 +1110,8 @@ def export_all_orders_to_excel(all_results):
         ws = wb.create_sheet(title=sheet_name)
         df = r['summary_table']
         
-        ws.cell(row=1, column=1, value=f"ĐƠN HÀNG: {r['order_no']} (SL: {r['order_qty']:g} | Variant: {r.get('variant', '')})").font = font_title
-        ws.cell(row=2, column=1, value=f"Tổng mã: {r['total_items']} | ĐỦ: {r['ok_count']} | THIẾU: {r['missing_count']}").font = Font(name="Segoe UI", size=10, italic=True)
+        ws.cell(row=1, column=1, value=f"ĐƠN HÀNG: {r['order_no']} (Kho: {r.get('wh', '01&61')} | SL: {r['order_qty']:g} | Variant: {r.get('variant', '')})").font = font_title
+        ws.cell(row=2, column=1, value=f"Kho đối soát (WH): {r.get('wh', '01&61')} | Tổng mã: {r['total_items']} | ĐỦ: {r['ok_count']} | THIẾU: {r['missing_count']}").font = Font(name="Segoe UI", size=10, italic=True)
         
         start_r = 4
         headers = list(df.columns)
@@ -975,16 +1148,20 @@ def export_all_orders_to_excel(all_results):
     return out.getvalue()
 
 
-def analyze_orders_readiness(df_bom, df_stock):
+def analyze_orders_readiness(df_bom, df_stock, wh_spec=None):
     """
     Phân tích đối soát thông minh toàn bộ đơn hàng trong BOM đối chiếu với tồn kho hiện có:
+    - Lọc đúng tồn kho theo kho được chọn `wh_spec` (nếu không chọn kho thì mặc định chỉ lấy 2 kho '01' & '61',
+      TUYỆT ĐỐI KHÔNG lấy dữ liệu ở kho khác để đối soát).
     - Tự động lựa chọn Variant tối ưu cho từng đơn hàng (nếu đơn có nhiều Variant như 0004, 0104).
     - Tìm ra các đơn hàng có ĐỦ 100% ITEM CODE đồng bộ (tồn kho > 0 cho mọi linh kiện).
     - Tính toán số lượng TỐI ĐA có thể chạy ngay dựa trên linh kiện nghẽn (bottleneck).
     - Liệt kê các đơn chưa đủ mã, phân loại các đơn "Cận sẵn sàng" (Near-Ready: chỉ thiếu 1-3 mã)
       và chi tiết các mã đang thiếu.
     """
-    stock_pool = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
+    wh_code_str = format_warehouse_code(wh_spec)
+    df_stock_filtered = filter_stock_by_warehouses(df_stock, wh_spec)
+    stock_pool = df_stock_filtered.groupby('Stock_Code')['Qty'].sum().to_dict() if (df_stock_filtered is not None and len(df_stock_filtered) > 0) else {}
     orders = get_available_orders_info(df_bom)
     
     # Gom nhóm theo Order_No, Variant và Component_Code
@@ -1033,6 +1210,7 @@ def analyze_orders_readiness(df_bom, df_stock):
             if max_runnable > 0:
                 ready_orders.append({
                     'order_no': order_no,
+                    'wh': wh_code_str,
                     'variant': chosen_var,
                     'description': oinfo['description'],
                     'total_components': total_comps,
@@ -1053,6 +1231,7 @@ def analyze_orders_readiness(df_bom, df_stock):
         ]
         item_not_ready = {
             'order_no': order_no,
+            'wh': wh_code_str,
             'variant': chosen_var,
             'description': oinfo['description'],
             'total_components': total_comps,
@@ -1077,6 +1256,7 @@ def analyze_orders_readiness(df_bom, df_stock):
     ready_percent = round((ready_count / total_count * 100), 1) if total_count > 0 else 0.0
     
     return {
+        'wh': wh_code_str,
         'ready_orders': ready_orders,
         'not_ready_orders': not_ready_orders,
         'near_ready_orders': near_ready_orders,
@@ -1116,12 +1296,13 @@ def export_readiness_report_to_excel(readiness_data):
     align_right = Alignment(horizontal="right", vertical="center")
     align_header = Alignment(horizontal="center", vertical="center", wrap_text=True)
     
+    wh_label = readiness_data.get('wh', '01&61')
     # ===== SHEET 1: ĐƠN SẴN SÀNG CHẠY =====
-    ws1.cell(row=1, column=1, value="BÁO CÁO CÁC ĐƠN HÀNG ĐỦ MÃ HÀNG ĐỒNG BỘ TRONG TỒN KHO").font = font_title
-    ws1.cell(row=2, column=1, value=f"Tổng số đơn đủ mã: {readiness_data['ready_count']} / {readiness_data['total_orders']} đơn ({readiness_data['ready_percent']}%) | Đã tính toán số lượng tối đa có thể sản xuất ngay").font = font_sub
+    ws1.cell(row=1, column=1, value=f"BÁO CÁO CÁC ĐƠN HÀNG ĐỦ MÃ HÀNG ĐỒNG BỘ TRONG TỒN KHO (KHO: {wh_label})").font = font_title
+    ws1.cell(row=2, column=1, value=f"Kho đối soát (WH): {wh_label} | Tổng số đơn đủ mã: {readiness_data['ready_count']} / {readiness_data['total_orders']} đơn ({readiness_data['ready_percent']}%) | Đã tính toán số lượng tối đa có thể sản xuất ngay").font = font_sub
     
     headers1 = [
-        "STT", "Mã đơn hàng", "Tên sản phẩm", "Số ITEM CODE trong BOM",
+        "STT", "Mã đơn hàng", "Kho (WH)", "Tên sản phẩm", "Số ITEM CODE trong BOM",
         "SL TỐI ĐA có thể chạy (bộ)", "ITEM CODE điểm nghẽn",
         "Tên linh kiện nghẽn", "Tồn kho linh kiện nghẽn", "ĐM bộ linh kiện nghẽn", "Đánh giá"
     ]
@@ -1139,6 +1320,7 @@ def export_readiness_report_to_excel(readiness_data):
         vals = [
             idx,
             r['order_no'],
+            r.get('wh', wh_label),
             r['description'],
             r['total_components'],
             r['max_runnable_qty'],
@@ -1166,10 +1348,10 @@ def export_readiness_report_to_excel(readiness_data):
         ws1.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
         
     # ===== SHEET 2: ĐƠN CHƯA ĐỦ MÃ =====
-    ws2.cell(row=1, column=1, value="DANH SÁCH ĐƠN HÀNG CHƯA ĐỦ MÃ TRONG TỒN KHO").font = font_title
-    ws2.cell(row=2, column=1, value=f"Tổng số đơn chưa đủ mã: {readiness_data['not_ready_count']} đơn (Trong đó có {readiness_data.get('near_ready_count', 0)} đơn cận sẵn sàng chỉ thiếu 1-3 mã)").font = font_sub
+    ws2.cell(row=1, column=1, value=f"DANH SÁCH ĐƠN HÀNG CHƯA ĐỦ MÃ TRONG TỒN KHO (KHO: {wh_label})").font = font_title
+    ws2.cell(row=2, column=1, value=f"Kho đối soát (WH): {wh_label} | Tổng số đơn chưa đủ mã: {readiness_data['not_ready_count']} đơn (Trong đó có {readiness_data.get('near_ready_count', 0)} đơn cận sẵn sàng chỉ thiếu 1-3 mã)").font = font_sub
     
-    headers2 = ["STT", "Mã đơn hàng", "Tên sản phẩm", "Tổng ITEM CODE", "Số mã có trong kho", "Số mã còn thiếu", "Tỷ lệ đồng bộ (%)", "Mẫu mã linh kiện thiếu"]
+    headers2 = ["STT", "Mã đơn hàng", "Kho (WH)", "Tên sản phẩm", "Tổng ITEM CODE", "Số mã có trong kho", "Số mã còn thiếu", "Tỷ lệ đồng bộ (%)", "Mẫu mã linh kiện thiếu"]
     for c_i, h in enumerate(headers2, 1):
         cell = ws2.cell(row=4, column=c_i, value=h)
         cell.font = font_header
@@ -1186,6 +1368,7 @@ def export_readiness_report_to_excel(readiness_data):
         vals = [
             idx,
             r['order_no'],
+            r.get('wh', wh_label),
             r['description'],
             r['total_components'],
             r['components_in_stock'],
@@ -1235,9 +1418,10 @@ def find_similar_stock_substitutes(missing_code: str, all_stock_codes: set, stoc
     return candidates[:3]
 
 
-def check_data_integrity(df_bom, df_stock, df_plan=None):
+def check_data_integrity(df_bom, df_stock, df_plan=None, wh_spec=None):
     """
     Kiểm tra toàn diện tính toàn vẹn và độ chính xác của dữ liệu (Smart Data Integrity & Bottleneck Analysis):
+    - Chỉ đối soát dữ liệu tồn kho theo kho được chọn (hoặc mặc định 2 kho '01' & '61', không lấy kho khác).
     1. Linh kiện trong BOM thiếu trong Stock (kèm gợi ý mã tương đương trong kho nếu có).
     2. Linh kiện trong Stock có tồn kho <= 0 hoặc bất thường.
     3. Mã đơn hàng trong Kế hoạch có trong BOM không.
@@ -1247,8 +1431,9 @@ def check_data_integrity(df_bom, df_stock, df_plan=None):
     if df_bom is None or df_stock is None:
         return None
         
+    df_stock_filtered = filter_stock_by_warehouses(df_stock, wh_spec)
     bom_comps = df_bom[['Component_Code', 'Component_Desc']].drop_duplicates(subset=['Component_Code'])
-    stock_summary = df_stock.groupby('Stock_Code')['Qty'].sum().to_dict()
+    stock_summary = df_stock_filtered.groupby('Stock_Code')['Qty'].sum().to_dict() if (df_stock_filtered is not None and len(df_stock_filtered) > 0) else {}
     all_stock_codes = set(stock_summary.keys())
     
     # Pre-group orders per component
@@ -1303,12 +1488,14 @@ def check_data_integrity(df_bom, df_stock, df_plan=None):
     plan_issues = []
     if df_plan is not None and len(df_plan) > 0:
         bom_orders_set = set(df_bom['Order_No'].unique())
-        plan_orders = df_plan[['Order_No', 'MODEL', 'Qty']].drop_duplicates()
+        plan_cols = ['Order_No', 'MODEL', 'Qty'] + (['WH'] if 'WH' in df_plan.columns else [])
+        plan_orders = df_plan[plan_cols].drop_duplicates()
         for prow in plan_orders.to_dict('records'):
             p_ord = prow['Order_No']
             if p_ord not in bom_orders_set:
                 plan_issues.append({
                     'Mã đơn trong Kế hoạch': p_ord,
+                    'Kho (WH)': prow.get('WH', '01&61'),
                     'Mã MODEL': prow['MODEL'],
                     'Số lượng': prow['Qty'],
                     'Nguyên nhân': 'Chưa khai báo cấu trúc BOM cho mã đơn này'
@@ -1366,7 +1553,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
     1. Top linh kiện nút cổ chai (Critical Bottlenecks) đang chặn nhiều đơn hàng nhất.
     2. Danh sách đơn hàng "Cận sẵn sàng" (Near-Ready Orders: chỉ thiếu 1-3 linh kiện là chạy được ngay).
     3. Gợi ý mã linh kiện tương đương trong kho (Smart Substitute Candidates).
-    4. Phân tích khả năng đáp ứng Kế hoạch sản xuất (Plan vs FIFO Stock Allocation).
+    4. Phân tích khả năng đáp ứng Kế hoạch sản xuất theo đúng Kho (WH) (Plan vs FIFO Stock Allocation).
     5. Xuất gói dữ liệu chuẩn hóa JSON & Markdown Brief cho các AI Agent.
     """
     readiness = readiness_data if readiness_data is not None else analyze_orders_readiness(df_bom, df_stock)
@@ -1380,6 +1567,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
     df_near_ready = pd.DataFrame([
         {
             'Mã đơn hàng': r['order_no'],
+            'Kho (WH)': r.get('wh', '01&61'),
             'Phiên bản': r.get('variant', ''),
             'Tên sản phẩm': r['description'],
             'Độ đồng bộ (%)': f"{r['readiness_pct']}% ({r['components_in_stock']}/{r['total_components']})",
@@ -1389,35 +1577,43 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
         for r in near_ready_list
     ])
     
-    # 3. Phân tích chuyên sâu File Kế hoạch (nếu có)
+    # 3. Phân tích chuyên sâu File Kế hoạch (nếu có) theo đúng Kho (WH) của từng đơn
     plan_analysis = []
     if df_plan is not None and len(df_plan) > 0:
         plan_q = extract_orders_from_plan(df_plan)
         fifo_res = calculation_results if (calculation_results and len(calculation_results) == len(plan_q)) else calculate_inventory_allocation(plan_q, df_bom, df_stock)
-        ready_map = {ro['order_no']: ro for ro in readiness['ready_orders']}
+        readiness_by_wh_cache = {
+            format_warehouse_code(readiness.get('wh', '01&61')): {ro['order_no']: ro for ro in readiness['ready_orders']}
+        }
         for r in fifo_res:
             ord_no = r['order_no']
-            ro = ready_map.get(ord_no)
+            r_wh = format_warehouse_code(r.get('wh', '01&61'))
+            if r_wh not in readiness_by_wh_cache:
+                wh_rd = analyze_orders_readiness(df_bom, df_stock, wh_spec=r_wh)
+                readiness_by_wh_cache[r_wh] = {ro['order_no']: ro for ro in wh_rd['ready_orders']}
+            ro = readiness_by_wh_cache[r_wh].get(ord_no)
             max_independent = ro['max_runnable_qty'] if ro else 0
             plan_analysis.append({
                 'Ưu tiên FIFO': f"#{r['stt']}",
                 'Mã đơn': ord_no,
+                'Kho (WH)': r_wh,
                 'Phiên bản': r.get('variant', ''),
                 'Sản phẩm': r.get('product_title', ''),
                 'SL Kế hoạch (bộ)': int(r['order_qty']),
-                'SL Tối đa Độc lập (bộ)': max_independent,
+                'SL Tối đa Độc lập tại Kho (bộ)': max_independent,
                 'Kết quả FIFO lũy kế': "✅ ĐỦ 100% VẬT TƯ" if r.get('is_fully_ok') else f"⚠️ THIẾU {r['missing_count']} MÃ",
                 'Khuyến nghị điều độ': (
-                    "Chạy ngay theo kế hoạch" if r.get('is_fully_ok')
-                    else (f"Có thể tách chạy trước tối đa {max_independent:,} bộ" if max_independent > 0 else "Chờ bổ sung vật tư thiếu")
+                    f"Chạy ngay theo kế hoạch (Kho {r_wh})" if r.get('is_fully_ok')
+                    else (f"Có thể tách chạy trước tối đa {max_independent:,} bộ tại Kho {r_wh}" if max_independent > 0 else f"Chờ bổ sung vật tư thiếu tại Kho {r_wh}")
                 )
             })
     df_plan_smart = pd.DataFrame(plan_analysis)
     
     # 4. Tạo gói dữ liệu Agent Payload (JSON & Markdown) để các Agent lọc dữ liệu quan trọng
     agent_payload = {
-        "schema_version": "2.0-agent-ready",
+        "schema_version": "2.1-agent-warehouse-ready",
         "generated_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "default_reconciliation_warehouses": list(DEFAULT_WAREHOUSES),
         "kpi_summary": {
             "total_bom_orders": readiness['total_orders'],
             "ready_100_pct_orders_count": readiness['ready_count'],
@@ -1434,6 +1630,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
         "top_ready_orders_to_run_immediately": [
             {
                 "order_no": r['order_no'],
+                "wh": r.get('wh', '01&61'),
                 "variant": r.get('variant', ''),
                 "product": r['description'],
                 "max_runnable_sets": r['max_runnable_qty'],
@@ -1446,6 +1643,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
         "near_ready_orders_missing_1_to_3_items": [
             {
                 "order_no": r['order_no'],
+                "wh": r.get('wh', '01&61'),
                 "variant": r.get('variant', ''),
                 "product": r['description'],
                 "readiness_pct": r['readiness_pct'],
@@ -1463,6 +1661,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
     md_lines = [
         f"# 🤖 BÁO CÁO TRÍ TUỆ ĐỐI SOÁT VẬT TƯ (AGENT DATA BRIEF)",
         f"- **Thời gian trích xuất**: {agent_payload['generated_at']}",
+        f"- **Kho đối soát mặc định**: **Kho 01 & 61** (Không lấy dữ liệu ở kho khác ngoài kho chỉ định)",
         f"- **Tổng số đơn hàng trong BOM**: **{readiness['total_orders']} đơn** | Đủ 100% mã chạy ngay: **{readiness['ready_count']} đơn ({readiness['ready_percent']}%)**",
         f"- **Đơn hàng cận sẵn sàng (chỉ thiếu 1-3 mã)**: **{readiness.get('near_ready_count', 0)} đơn** (Ưu tiên thúc hàng để mở khóa sản xuất nhanh)",
         f"- **Điểm sức khỏe & đồng bộ dữ liệu**: **{integrity['overall_health'] if integrity else 0}%** ({integrity['matched_comps'] if integrity else 0}/{integrity['total_bom_comps'] if integrity else 0} mã linh kiện khớp tồn kho)",
@@ -1471,7 +1670,7 @@ def generate_smart_reconciliation_insights(df_bom, df_stock, df_plan=None, calcu
     ]
     for r in readiness['ready_orders'][:5]:
         md_lines.append(
-            f"- **Đơn {r['order_no']}** ({r['description']}) - Phiên bản `{r.get('variant', '')}`: Chạy tối đa **{r['max_runnable_qty']:,} bộ** | Điểm nghẽn: `{r['bottleneck_code']}` ({r['bottleneck_desc']}, tồn: {int(r['bottleneck_stock']):,})"
+            f"- **Đơn {r['order_no']}** (Kho `{r.get('wh', '01&61')}`) ({r['description']}) - Phiên bản `{r.get('variant', '')}`: Chạy tối đa **{r['max_runnable_qty']:,} bộ** | Điểm nghẽn: `{r['bottleneck_code']}` ({r['bottleneck_desc']}, tồn: {int(r['bottleneck_stock']):,})"
         )
     md_lines.append("")
     md_lines.append("## 2. Top 5 Linh Kiện Nút Cổ Chai Cần Mua / Nhập Kho Gấp")

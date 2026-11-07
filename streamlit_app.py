@@ -300,6 +300,16 @@ st.markdown("""
         font-size: 13.5px;
         display: inline-block;
     }
+    .badge-wh {
+        background-color: #F3E8FF;
+        color: #6B21A8;
+        border: 1px solid #D8B4FE;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 800;
+        font-size: 12.5px;
+        display: inline-block;
+    }
     .badge-role {
         padding: 3px 10px;
         border-radius: 9999px;
@@ -618,6 +628,10 @@ def get_cached_fifo_allocation(queue_key, _orders_queue, _df_bom, _df_stock):
     return core_engine.calculate_inventory_allocation(_orders_queue, _df_bom, _df_stock)
 
 @st.cache_data
+def get_cached_readiness_by_wh(cache_key, _df_bom, _df_stock, wh_spec):
+    return core_engine.analyze_orders_readiness(_df_bom, _df_stock, wh_spec=wh_spec)
+
+@st.cache_data
 def get_cached_integrity_and_smart(cache_key, _df_bom, _df_stock, _df_plan, _calculation_results, _readiness_data):
     integ = core_engine.check_data_integrity(_df_bom, _df_stock, _df_plan)
     smart = core_engine.generate_smart_reconciliation_insights(
@@ -787,7 +801,7 @@ with st.sidebar:
             "Tải lên file Kế hoạch mới",
             type=["xlsx", "xls", "csv"],
             key="uploader_plan",
-            help="Cột quan trọng: MODEL và Qty (và Due date nếu có) (.xlsx, .xls, .csv)"
+            help="Cột quan trọng: MODEL, Qty, WH (Kho) và Due date (nếu có) (.xlsx, .xls, .csv)"
         )
         if uploaded_plan is not None:
             plan_bytes_val = uploaded_plan.getvalue()
@@ -799,6 +813,13 @@ with st.sidebar:
                     with open(PLAN_PERSIST_FILE, 'wb') as f:
                         f.write(plan_bytes_val)
                     save_meta({'plan_name': uploaded_plan.name, 'plan_cleared': False})
+                    # Tự động nạp các đơn trong file Kế hoạch mới (kèm cột WH và Qty) vào hàng chờ đối soát
+                    plan_stream = io.BytesIO(plan_bytes_val)
+                    plan_stream.name = uploaded_plan.name
+                    df_plan_new = core_engine.load_plan_data(plan_stream)
+                    if df_plan_new is not None and len(df_plan_new) > 0:
+                        st.session_state.orders_queue = core_engine.extract_orders_from_plan(df_plan_new)
+                        storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
                     auth_manager.log_activity(username, "UPLOAD_PLAN", f"Tải lên file Kế hoạch mới: {uploaded_plan.name}")
                 except Exception:
                     pass
@@ -832,6 +853,14 @@ with st.sidebar:
             if st.button("🔄 Nạp lại Kế hoạch mặc định", key="btn_restore_default_plan", width="stretch"):
                 st.session_state.plan_cleared = False
                 save_meta({'plan_cleared': False})
+                default_plan_f = find_data_file(['kế hoạch']) or find_data_file(['ke hoach']) or find_data_file(['plan'])
+                if default_plan_f:
+                    try:
+                        df_p_def = core_engine.load_plan_data(default_plan_f)
+                        st.session_state.orders_queue = core_engine.extract_orders_from_plan(df_p_def)
+                        storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                    except Exception:
+                        pass
                 auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
                 st.cache_data.clear()
                 st.toast("✅ Đã nạp lại file Kế hoạch mặc định!", icon="✅")
@@ -869,7 +898,9 @@ with st.sidebar:
     default_stock_label = f"{os.path.basename(default_stock_path)} (Mặc định)" if default_stock_path else "Stock 61.xlsx (Mặc định)"
     current_stock_name = active_stock_name or default_stock_label
     if df_stock is not None:
-        st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã)")
+        stock_whs = sorted([w for w in df_stock['Warehouse'].unique().tolist() if w]) if 'Warehouse' in df_stock.columns else []
+        wh_info_str = f" | Kho: {', '.join(stock_whs)}" if stock_whs else ""
+        st.caption(f"📁 **{current_stock_name}** ({len(df_stock):,} dòng, {len(df_stock['Stock_Code'].unique()):,} mã{wh_info_str})")
     else:
         st.caption(f"📁 **{current_stock_name}** (Chưa nạp)")
 
@@ -882,7 +913,8 @@ with st.sidebar:
     current_plan_name = active_plan_name or plan_file_display_name or "Kế hoạch.xlsx (Mặc định)"
     if df_plan is not None:
         plan_orders_temp = core_engine.extract_orders_from_plan(df_plan)
-        st.caption(f"📁 **{current_plan_name}** ({len(df_plan):,} dòng, {len(plan_orders_temp):,} đơn)")
+        plan_whs = sorted(df_plan['WH'].unique().tolist()) if 'WH' in df_plan.columns else ['01&61']
+        st.caption(f"📁 **{current_plan_name}** ({len(df_plan):,} dòng, {len(plan_orders_temp):,} đơn | WH: {', '.join(plan_whs)})")
     else:
         st.caption(f"📁 **File Kế hoạch** (Đã xóa dữ liệu / Chưa nạp)")
 
@@ -921,7 +953,7 @@ st.markdown(f"""
         </div>
     </div>
     <div class="hero-desc">
-        Tự động tính định mức nguyên đơn <b>(Trái + Phải)</b> | Phân bổ trừ tồn kho tự động <b>FIFO (Trái trước - Phải sau)</b> | Quản lý & phân quyền đa người dùng mượt mà, chính xác.
+        Tự động tính định mức nguyên đơn <b>(Trái + Phải)</b> | Đối soát chính xác theo <b>Kho (WH)</b> trong Kế hoạch hoặc ô chọn kho (mặc định chỉ lấy <b>Kho 01 & 61</b>, không lấy kho khác) | Phân bổ <b>FIFO (Trái trước - Phải sau)</b>.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -947,6 +979,7 @@ if queue_len > 0:
             (
                 item.get('id', ''),
                 item.get('order_no', ''),
+                core_engine.format_warehouse_code(item.get('wh')),
                 float(item.get('qty', 0)),
                 float(item.get('qty_left', item.get('qty', 0))),
                 float(item.get('qty_right', item.get('qty', 0))),
@@ -963,6 +996,8 @@ if queue_len > 0:
     )
     actual_ok_orders = sum(1 for r in calculation_results if r.get('is_fully_ok', False))
     actual_missing_orders = len(calculation_results) - actual_ok_orders
+
+df_stock_default_wh = core_engine.filter_stock_by_warehouses(df_stock, None)
 
 # 5 THẺ KPI TO BẢN
 col_m1, col_m2, col_m3, col_m4, col_m5 = st.columns(5)
@@ -985,7 +1020,7 @@ with col_m2:
     else:
         st.markdown(f"""
         <div class="kpi-card kpi-card-border-emerald">
-            <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ</div>
+            <div class="kpi-label">🎯 Đơn Đủ Mã Đồng Bộ (01&61)</div>
             <div class="kpi-value" style="color:#059669;">{readiness_data['ready_count']}<span class="kpi-unit" style="color:#059669;">/ {readiness_data['total_orders']}</span></div>
             <div style="font-size:11.5px; font-weight:700; color:#059669; margin-top:2px;">✨ {readiness_data['ready_percent']}% đơn sẵn sàng chạy</div>
         </div>
@@ -993,15 +1028,15 @@ with col_m2:
 with col_m3:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-green">
-        <div class="kpi-label">🧩 Linh Kiện Trong Kho</div>
-        <div class="kpi-value">{len(df_stock['Stock_Code'].unique()):,}<span class="kpi-unit">mã</span></div>
+        <div class="kpi-label">🧩 Linh Kiện Kho (01&61)</div>
+        <div class="kpi-value">{len(df_stock_default_wh['Stock_Code'].unique()):,}<span class="kpi-unit">mã</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col_m4:
     st.markdown(f"""
     <div class="kpi-card kpi-card-border-purple">
-        <div class="kpi-label">📦 Tổng Lượng Tồn Kho</div>
-        <div class="kpi-value">{int(df_stock['Qty'].sum()):,}<span class="kpi-unit">cái</span></div>
+        <div class="kpi-label">📦 Tồn Kho Đối Soát (01&61)</div>
+        <div class="kpi-value">{int(df_stock_default_wh['Qty'].sum()):,}<span class="kpi-unit">cái</span></div>
     </div>
     """, unsafe_allow_html=True)
 with col_m5:
@@ -1024,23 +1059,46 @@ if user_permissions.get('can_manage_users', False):
 
 tabs = st.tabs(tabs_list)
 
+available_wh_codes = core_engine.get_available_warehouses(df_stock, df_plan)
+wh_select_options = [""] + available_wh_codes
+
+def format_wh_option(w):
+    if not w or str(w).strip() in ("", "01&61"):
+        return "🏬 Mặc định (Kho 01 & 61)"
+    return f"🏬 Kho {core_engine.format_warehouse_code(w)}"
+
 # TAB 1: ĐỐI SOÁT & HÀNG CHỜ FIFO
 with tabs[0]:
-    # 1. BẢNG NHẬP ĐƠN HÀNG
+    # 1. BẢNG NHẬP ĐƠN HÀNG, SỐ LƯỢNG & CHỌN KHO
     st.markdown("""
     <div class="floating-box">
         <div class="box-header">
-            <span>🎯 NHẬP ĐƠN HÀNG & SỐ LƯỢNG CẦN CHẠY</span>
+            <span>🎯 NHẬP ĐƠN HÀNG, SỐ LƯỢNG CẦN CHẠY & CHỌN KHO ĐỐI SOÁT (WH)</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # Xác định kho đang chọn trên giao diện (nếu không chọn kho thì mặc định lấy 2 kho 01 & 61)
+    curr_wh_input_raw = st.session_state.get("input_wh_selector", "")
+    active_input_wh_code = core_engine.format_warehouse_code(curr_wh_input_raw)
+    tab1_readiness_key = (
+        active_bom_name or "default_bom",
+        active_stock_name or "default_stock",
+        len(df_bom),
+        len(df_stock),
+        active_input_wh_code
+    )
+    tab1_readiness = (
+        readiness_data if active_input_wh_code == "01&61"
+        else get_cached_readiness_by_wh(tab1_readiness_key, df_bom, df_stock, active_input_wh_code)
+    )
+
     sorted_order_keys = sorted(orders_info.keys())
-    ready_orders_dict = {ro['order_no']: ro for ro in readiness_data['ready_orders']}
+    ready_orders_dict = {ro['order_no']: ro for ro in tab1_readiness['ready_orders']}
     
     # Gợi ý chọn nhanh 1 chạm
-    st.markdown("**⚡ Gợi ý chọn nhanh các đơn đủ mã đồng bộ (1 Chạm để điền mã & SL tối đa):**")
-    quick_sample_orders = ['5151', '5171', '8333', '4151', '1009', '5804']
+    st.markdown(f"**⚡ Gợi ý chọn nhanh các đơn đủ mã đồng bộ tại Kho `{active_input_wh_code}` (1 Chạm để điền mã & SL tối đa):**")
+    quick_sample_orders = ['5151', '5171', '8333', '2032', '1009', '5804']
     chip_cols = safe_columns(len(quick_sample_orders))
     for c_i, ord_code in enumerate(quick_sample_orders):
         if ord_code in orders_info:
@@ -1055,16 +1113,16 @@ with tabs[0]:
     def format_order_item(k):
         ro = ready_orders_dict.get(k)
         if ro:
-            return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ - Tối đa: {ro['max_runnable_qty']:,} pcs)"
+            return f"🟢 Đơn {k} - {orders_info[k]['description']} (✅ ĐỦ 100% MÃ tại Kho {active_input_wh_code} - Tối đa: {ro['max_runnable_qty']:,} pcs)"
         else:
-            return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện)"
+            return f"⚪ Đơn {k} - {orders_info[k]['description']} (⚠️ Thiếu linh kiện tại Kho {active_input_wh_code})"
 
-    col_input1, col_input2, col_input3 = safe_columns([5, 3, 2], vertical_alignment="bottom")
+    col_input1, col_input2, col_input3, col_input4 = safe_columns([4.2, 2.0, 2.6, 2.0], vertical_alignment="bottom")
     with col_input1:
         curr_target = st.session_state.get('quick_selected_order', '5151')
         default_idx = sorted_order_keys.index(curr_target) if curr_target in sorted_order_keys else 0
         selected_code = st.selectbox(
-            "1. Chọn hoặc gõ tìm mã đơn hàng (Ví dụ: 5151, 8333...):",
+            "1. Chọn hoặc gõ tìm mã đơn hàng (Ví dụ: 5151, 2032...):",
             options=sorted_order_keys,
             format_func=format_order_item,
             index=default_idx if sorted_order_keys else None
@@ -1076,11 +1134,34 @@ with tabs[0]:
             placeholder="Nhập số lượng..."
         )
     with col_input3:
+        try:
+            selected_wh_raw = st.selectbox(
+                "3. Chọn hoặc điền Kho (WH):",
+                options=wh_select_options,
+                format_func=format_wh_option,
+                index=0,
+                key="input_wh_selector",
+                accept_new_options=True,
+                help="Điền/chọn kho nào sẽ lấy đúng tồn kho đó ra đối soát. Nếu không chọn kho nào thì mặc định lấy 2 kho 01 & 61 (KHÔNG lấy dữ liệu kho khác)."
+            )
+        except TypeError:
+            selected_wh_raw = st.selectbox(
+                "3. Chọn hoặc điền Kho (WH):",
+                options=wh_select_options,
+                format_func=format_wh_option,
+                index=0,
+                key="input_wh_selector",
+                help="Điền/chọn kho nào sẽ lấy đúng tồn kho đó ra đối soát. Nếu không chọn kho nào thì mặc định lấy 2 kho 01 & 61 (KHÔNG lấy dữ liệu kho khác)."
+            )
+    with col_input4:
         can_queue = user_permissions.get('can_manage_queue', False)
         btn_add = st.button("➕ BẤM OK ĐỂ TÍNH", type="primary", width="stretch", disabled=not can_queue)
 
     if not can_queue:
         st.caption("🔒 *Tài khoản của bạn chỉ có quyền Xem (Viewer) hoặc Thủ kho, không được chỉnh sửa hàng chờ.*")
+
+    selected_wh_code = core_engine.format_warehouse_code(selected_wh_raw)
+    selected_wh_display = f"Kho {selected_wh_code}" if (selected_wh_raw and str(selected_wh_raw).strip() not in ("", "01&61")) else "Kho 01 & 61 (Mặc định)"
 
     if selected_code:
         curr_info = orders_info.get(selected_code, {})
@@ -1089,11 +1170,12 @@ with tabs[0]:
             ready_badge_str = f"<span class='badge-ok'>✅ ĐỦ 100% MÃ ĐỒNG BỘ (Tối đa chạy được {ready_match['max_runnable_qty']:,} pcs)</span>"
             bottleneck_str = f" | <span style='color:#D97706; font-weight:700;'>⚠️ Điểm nghẽn: <b title='{ready_match['bottleneck_desc']}'>{ready_match['bottleneck_code']}</b> (Còn: {int(ready_match['bottleneck_stock']):,} cái)</span>"
         else:
-            ready_badge_str = "<span class='badge-missing'>⚠️ Đang thiếu linh kiện trong kho</span>"
+            ready_badge_str = f"<span class='badge-missing'>⚠️ Đang thiếu linh kiện tại {selected_wh_display}</span>"
             bottleneck_str = ""
         st.markdown(
             f"<div style='background:#F1F5F9; border-radius:10px; padding:10px 14px; font-size:13.5px; color:#334155; margin-top:8px; border-left:4px solid #2563EB;'>"
             f"ℹ️ <b>Đơn hàng {selected_code}</b>: {curr_info.get('description', '')} | <b>Nguyên đơn</b>: Trái + Phải | "
+            f"<b>Kho đối soát</b>: <span class='badge-wh'>🏬 {selected_wh_display}</span> | "
             f"Độ sẵn sàng: {ready_badge_str}{bottleneck_str}"
             f"</div>",
             unsafe_allow_html=True
@@ -1105,15 +1187,16 @@ with tabs[0]:
             val = float(str(qty_input_str).replace(',', '').strip())
             if val > 0 and selected_code:
                 st.session_state.orders_queue.append({
-                    'id': f"{selected_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
+                    'id': f"{selected_code}_{selected_wh_code}_{len(st.session_state.orders_queue)+1}_{uuid.uuid4().hex[:8]}",
                     'order_no': selected_code,
+                    'wh': selected_wh_code,
                     'description': orders_info[selected_code]['description'],
                     'qty': val,
                     'created_at': datetime.datetime.now().strftime("%H:%M:%S")
                 })
                 storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
-                auth_manager.log_activity(username, "ADD_QUEUE", f"Thêm đơn {selected_code} ({val:,g} bộ) vào hàng chờ ({st.session_state.workspace_mode})")
-                st.toast(f"✅ Đã thêm đơn {selected_code} ({val:,g} bộ) vào hàng chờ!", icon="✅")
+                auth_manager.log_activity(username, "ADD_QUEUE", f"Thêm đơn {selected_code} ({val:,g} bộ, Kho {selected_wh_code}) vào hàng chờ ({st.session_state.workspace_mode})")
+                st.toast(f"✅ Đã thêm đơn {selected_code} ({val:,g} bộ | Kho {selected_wh_code}) vào hàng chờ!", icon="✅")
                 st.rerun()
             else:
                 st.error("⚠️ Số lượng cần chạy phải lớn hơn 0.")
@@ -1136,13 +1219,18 @@ with tabs[0]:
     # Nạp từ file kế hoạch nếu có
     if df_plan is not None and len(df_plan) > 0 and can_queue:
         plan_orders_extracted = core_engine.extract_orders_from_plan(df_plan)
+        plan_wh_counts = {}
+        for po in plan_orders_extracted:
+            w_k = po.get('wh', '01&61')
+            plan_wh_counts[w_k] = plan_wh_counts.get(w_k, 0) + 1
+        wh_summary_str = ", ".join([f"Kho {k}: {v} đơn" for k, v in sorted(plan_wh_counts.items())])
         col_p_btn, col_p_del, col_p_info = safe_columns([5, 2.5, 4.5], vertical_alignment="center")
         with col_p_btn:
             if st.button(f"🚀 NẠP TOÀN BỘ {len(plan_orders_extracted)} ĐƠN KẾ HOẠCH VÀO HÀNG CHỜ FIFO", type="primary", width="stretch"):
                 st.session_state.orders_queue = plan_orders_extracted
                 storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
                 auth_manager.log_activity(username, "LOAD_PLAN_QUEUE", f"Nạp {len(plan_orders_extracted)} đơn từ Kế hoạch vào hàng chờ ({st.session_state.workspace_mode})")
-                st.toast(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch!", icon="✅")
+                st.toast(f"✅ Đã nạp thành công {len(plan_orders_extracted)} đơn hàng từ file Kế hoạch (theo đúng cột WH & Qty)!", icon="✅")
                 st.rerun()
         with col_p_del:
             if st.button("🗑️ Xóa dữ liệu Kế hoạch", key="btn_clear_plan_tab1", type="secondary", width="stretch", help="Xóa dữ liệu kế hoạch sản xuất để hệ thống tự động tính tồn kho đối soát các đơn đồng bộ"):
@@ -1165,7 +1253,20 @@ with tabs[0]:
                 st.toast("✅ Đã xóa dữ liệu file Kế hoạch!", icon="🗑️")
                 st.rerun()
         with col_p_info:
-            st.caption(f"File Kế hoạch gồm {len(df_plan)} dòng Model, ghép thành {len(plan_orders_extracted)} đơn sản xuất.")
+            st.caption(f"File Kế hoạch gồm {len(df_plan)} dòng Model, ghép thành {len(plan_orders_extracted)} đơn ({wh_summary_str}).")
+        with st.expander(f"📋 Xem chi tiết bảng Kế hoạch sản xuất đang nạp ({len(df_plan)} dòng Model - có cột WH)", expanded=False):
+            display_plan_cols = [c for c in ['MODEL', 'Order_No', 'Side', 'Qty', 'WH', 'Due_Date'] if c in df_plan.columns]
+            st.dataframe(
+                df_plan[display_plan_cols].rename(columns={
+                    'Order_No': 'Mã đơn',
+                    'Side': 'Vế',
+                    'Qty': 'Số lượng (Qty)',
+                    'WH': 'Kho (WH)',
+                    'Due_Date': 'Ngày giao (Due date)'
+                }),
+                width="stretch",
+                height=260
+            )
     elif st.session_state.get('plan_cleared', False) and can_queue:
         col_p_nt1, col_p_nt2 = safe_columns([8, 2], vertical_alignment="center")
         with col_p_nt1:
@@ -1174,57 +1275,69 @@ with tabs[0]:
             if st.button("🔄 Nạp lại Kế hoạch", key="btn_restore_plan_tab1", width="stretch"):
                 st.session_state.plan_cleared = False
                 save_meta({'plan_cleared': False})
+                default_plan_f = find_data_file(['kế hoạch']) or find_data_file(['ke hoach']) or find_data_file(['plan'])
+                if default_plan_f:
+                    try:
+                        df_p_def = core_engine.load_plan_data(default_plan_f)
+                        st.session_state.orders_queue = core_engine.extract_orders_from_plan(df_p_def)
+                        storage_manager.save_queue(st.session_state.orders_queue, username, st.session_state.workspace_mode)
+                    except Exception:
+                        pass
                 auth_manager.log_activity(username, "RESTORE_PLAN", f"Người dùng {user_fullname} khôi phục nạp file Kế hoạch mặc định")
                 st.cache_data.clear()
                 st.toast("✅ Đã nạp lại file Kế hoạch mặc định!", icon="✅")
                 st.rerun()
 
     if len(st.session_state.orders_queue) == 0:
-        st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng chọn mã đơn ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
+        st.info("💡 Hiện chưa có đơn hàng nào trong hàng chờ. Vui lòng chọn mã đơn, số lượng và kho đối soát ở trên rồi bấm **BẤM OK ĐỂ TÍNH**.")
     else:
-        # Bảng hiển thị hàng chờ
-        cols_header = safe_columns([1, 2, 3, 2, 3, 1, 1])
+        # Bảng hiển thị hàng chờ (có cột Kho WH)
+        cols_header = safe_columns([0.8, 1.5, 2.8, 1.5, 1.8, 2.6, 1.2, 0.8])
         cols_header[0].markdown("**Ưu tiên**")
         cols_header[1].markdown("**Mã đơn**")
         cols_header[2].markdown("**Tên sản phẩm**")
-        cols_header[3].markdown("**Số lượng đặt**")
-        cols_header[4].markdown("**Đồng bộ tồn kho FIFO**")
-        cols_header[5].markdown("**Thời gian**")
-        cols_header[6].markdown("**Xóa**")
+        cols_header[3].markdown("**Kho (WH)**")
+        cols_header[4].markdown("**Số lượng đặt**")
+        cols_header[5].markdown("**Đồng bộ tồn kho FIFO**")
+        cols_header[6].markdown("**Thời gian**")
+        cols_header[7].markdown("**Xóa**")
 
         to_delete_idx = None
         for idx, item in enumerate(st.session_state.orders_queue):
-            c = safe_columns([1, 2, 3, 2, 3, 1, 1], vertical_alignment="center")
+            c = safe_columns([0.8, 1.5, 2.8, 1.5, 1.8, 2.6, 1.2, 0.8], vertical_alignment="center")
             c[0].markdown(f"**#{idx + 1}**")
             c[1].markdown(f"<span class='badge-order'>{item['order_no']}</span>", unsafe_allow_html=True)
             c[2].write(item.get('description') or orders_info.get(item['order_no'], {}).get('description', ''))
             
+            item_wh_code = core_engine.format_warehouse_code(item.get('wh'))
+            c[3].markdown(f"<span class='badge-wh'>🏬 Kho {item_wh_code}</span>", unsafe_allow_html=True)
+
             raw_qty = item.get('qty', 0)
             try: qty_num = float(raw_qty)
             except Exception: qty_num = 0.0
             qty_l = float(item.get('qty_left', qty_num))
             qty_r = float(item.get('qty_right', qty_num))
             if qty_l == qty_r:
-                c[3].markdown(f"**{qty_num:,g}** bộ")
+                c[4].markdown(f"**{qty_num:,g}** bộ")
             else:
-                c[3].markdown(f"T: **{qty_l:,g}** | P: **{qty_r:,g}**")
+                c[4].markdown(f"T: **{qty_l:,g}** | P: **{qty_r:,g}**")
 
             if idx < len(calculation_results):
                 res_item = calculation_results[idx]
                 if res_item.get('is_fully_ok', False):
-                    c[4].markdown("<span class='badge-ok'>✅ ĐỦ 100% VẬT TƯ</span>", unsafe_allow_html=True)
+                    c[5].markdown("<span class='badge-ok'>✅ ĐỦ 100% VẬT TƯ</span>", unsafe_allow_html=True)
                 else:
                     m_count = res_item.get('missing_count', 0)
-                    c[4].markdown(f"<span class='badge-missing'>⚠️ THIẾU {m_count} MÃ</span>", unsafe_allow_html=True)
+                    c[5].markdown(f"<span class='badge-missing'>⚠️ THIẾU {m_count} MÃ</span>", unsafe_allow_html=True)
             else:
-                c[4].markdown("<span>⏳ Đang tính...</span>", unsafe_allow_html=True)
+                c[5].markdown("<span>⏳ Đang tính...</span>", unsafe_allow_html=True)
 
-            c[5].write(item.get('due_date') or item.get('created_at', ''))
+            c[6].write(item.get('due_date') or item.get('created_at', ''))
             if can_queue:
-                if c[6].button("❌", key=f"del_{item['id']}"):
+                if c[7].button("❌", key=f"del_{item['id']}"):
                     to_delete_idx = idx
             else:
-                c[6].write("-")
+                c[7].write("-")
 
         if to_delete_idx is not None:
             del_item = st.session_state.orders_queue.pop(to_delete_idx)
@@ -1239,7 +1352,7 @@ with tabs[0]:
         
         # Nút xuất toàn bộ Excel
         queue_cache_key = tuple(
-            (item.get('id', ''), item['order_no'], item['order_qty'], item.get('ok_count', 0), item.get('missing_count', 0))
+            (item.get('id', ''), item['order_no'], item.get('wh', '01&61'), item['order_qty'], item.get('ok_count', 0), item.get('missing_count', 0))
             for item in calculation_results
         )
         all_excel_bytes = get_cached_all_excel(queue_cache_key, calculation_results)
@@ -1256,6 +1369,7 @@ with tabs[0]:
         for r in calculation_results:
             order_no = r['order_no']
             order_qty = r['order_qty']
+            order_wh = r.get('wh', '01&61')
             is_fully_ok = r.get('is_fully_ok', False)
             stt = r['stt']
             status_badge = "<span class='badge-ok'>✅ ĐỦ VẬT TƯ (100% OK)</span>" if is_fully_ok else f"<span class='badge-missing'>⚠️ THIẾU {r['missing_count']} ITEM CODE</span>"
@@ -1271,8 +1385,8 @@ with tabs[0]:
                     <div>
                         <span style="font-size: 17px; font-weight: 850; color: #1E3A8A;">Ưu tiên #{stt} - Đơn hàng {order_no}</span>
                         <span style="font-size: 14.5px; color: #475569; margin-left: 6px;">({r.get('product_title', '')})</span>
-                        <div style="margin-top: 3px; font-size: 13.5px; color: #64748B;">
-                            Số lượng: {qty_str} | Trạng thái: {status_badge}
+                        <div style="margin-top: 4px; font-size: 13.5px; color: #64748B;">
+                            Kho đối soát: <span class="badge-wh">🏬 Kho {order_wh}</span> | Số lượng: {qty_str} | Trạng thái: {status_badge}
                         </div>
                     </div>
                 </div>
@@ -1286,28 +1400,56 @@ with tabs[0]:
                 k2.metric("Mã ĐỦ", f"{r['ok_count']} mã")
                 k3.metric("Mã THIẾU", f"{r['missing_count']} mã", delta=f"-{r['missing_count']}" if r['missing_count'] > 0 else "0", delta_color="inverse")
             with col_ck2:
-                single_cache_key = f"{r.get('id', '')}_{order_no}_{order_qty}_{r.get('ok_count', 0)}_{r.get('missing_count', 0)}"
+                single_cache_key = f"{r.get('id', '')}_{order_no}_{order_wh}_{order_qty}_{r.get('ok_count', 0)}_{r.get('missing_count', 0)}"
                 single_excel = get_cached_single_order_excel(single_cache_key, r)
                 st.download_button(
-                    label=f"📥 Tải Excel Đơn {order_no}",
+                    label=f"📥 Tải Excel Đơn {order_no} (Kho {order_wh})",
                     data=single_excel,
-                    file_name=f"Doi_Soat_Don_{order_no}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+                    file_name=f"Doi_Soat_Don_{order_no}_Kho_{order_wh.replace('&', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key=f"dl_single_{r['id']}",
                     width="stretch"
                 )
+            if len(r.get('summary_table', pd.DataFrame())) > 0:
+                with st.expander(f"🔍 Xem bảng đối soát vật tư Đơn {order_no} tại Kho {order_wh} ({r['ok_count']} ĐỦ / {r['missing_count']} THIẾU)", expanded=False):
+                    st.dataframe(r['summary_table'], width="stretch", height=280)
             st.markdown("<hr style='margin: 12px 0; border: none; border-top: 1px dashed #CBD5E1;'>", unsafe_allow_html=True)
 
 
 # TAB 2: ĐƠN SẴN SÀNG CHẠY
 with tabs[1]:
+    col_t2_wh, col_t2_info = safe_columns([4, 6], vertical_alignment="bottom")
+    with col_t2_wh:
+        tab2_wh_raw = st.selectbox(
+            "🏬 Chọn Kho đối soát đơn sẵn sàng (WH):",
+            options=wh_select_options,
+            format_func=format_wh_option,
+            index=0,
+            key="tab2_wh_selector",
+            help="Mặc định lấy dữ liệu ở 2 kho 01 & 61 ra đối soát (không lấy kho khác). Khi chọn kho cụ thể sẽ đối soát riêng kho đó."
+        )
+    tab2_wh_code = core_engine.format_warehouse_code(tab2_wh_raw)
+    tab2_readiness_key = (
+        active_bom_name or "default_bom",
+        active_stock_name or "default_stock",
+        len(df_bom),
+        len(df_stock),
+        tab2_wh_code
+    )
+    tab2_readiness_data = (
+        readiness_data if tab2_wh_code == "01&61"
+        else get_cached_readiness_by_wh(tab2_readiness_key, df_bom, df_stock, tab2_wh_code)
+    )
+    with col_t2_info:
+        st.caption(f"Đang đối soát tồn kho tại: **Kho {tab2_wh_code}** (Tuyệt đối không lấy dữ liệu ở kho khác).")
+
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, #064E3B 0%, #059669 100%); border-radius: 14px; padding: 20px 24px; color: #FFFFFF; margin-bottom: 16px;">
         <div style="font-size: 20px; font-weight: 850;">
-            🚀 TỔNG HỢP {readiness_data['ready_count']} ĐƠN HÀNG ĐỦ 100% MÃ ĐỒNG BỘ TRONG KHO
+            🚀 TỔNG HỢP {tab2_readiness_data['ready_count']} ĐƠN HÀNG ĐỦ 100% MÃ ĐỒNG BỘ TẠI KHO {tab2_wh_code}
         </div>
         <div style="font-size: 14px; opacity: 0.95; margin-top: 4px;">
-            Hệ thống tự động tính toán số lượng tối đa có thể sản xuất ngay và chỉ rõ linh kiện nghẽn số lượng ít nhất.
+            Hệ thống tự động tính toán số lượng tối đa có thể sản xuất ngay tại Kho {tab2_wh_code} và chỉ rõ linh kiện nghẽn số lượng ít nhất.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1315,12 +1457,12 @@ with tabs[1]:
     # Nút tải Excel báo cáo
     col_dl_r1, col_dl_r2 = safe_columns([5, 5], vertical_alignment="center")
     with col_dl_r1:
-        readiness_key = (readiness_data['ready_count'], readiness_data['not_ready_count'], readiness_data['total_orders'])
-        readiness_excel = get_cached_readiness_excel(readiness_key, readiness_data)
+        readiness_key = (tab2_wh_code, tab2_readiness_data['ready_count'], tab2_readiness_data['not_ready_count'], tab2_readiness_data['total_orders'])
+        readiness_excel = get_cached_readiness_excel(readiness_key, tab2_readiness_data)
         st.download_button(
-            label=f"📥 Tải Báo Cáo Excel {readiness_data['ready_count']} Đơn Đủ Mã (Kèm Đơn Thiếu)",
+            label=f"📥 Tải Báo Cáo Excel {tab2_readiness_data['ready_count']} Đơn Đủ Mã Tại Kho {tab2_wh_code} (Kèm Đơn Thiếu)",
             data=readiness_excel,
-            file_name=f"Bao_Cao_Don_Du_Ma_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
+            file_name=f"Bao_Cao_Don_Du_Ma_Kho_{tab2_wh_code.replace('&', '_')}_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             width="stretch"
@@ -1338,7 +1480,7 @@ with tabs[1]:
         page_size = st.selectbox("Số dòng / trang:", [15, 25, 50, 100], index=0)
 
     # Lọc danh sách
-    filtered_ready = list(readiness_data['ready_orders'])
+    filtered_ready = list(tab2_readiness_data['ready_orders'])
     if search_ready.strip():
         kw = search_ready.strip().lower()
         filtered_ready = [ro for ro in filtered_ready if kw in ro['order_no'].lower() or kw in ro['description'].lower()]
@@ -1367,6 +1509,7 @@ with tabs[1]:
             <tr>
                 <th style="width: 50px; text-align:center;">STT</th>
                 <th style="width: 120px; text-align:center;">Mã Đơn</th>
+                <th style="width: 120px; text-align:center;">Kho (WH)</th>
                 <th>Tên Sản Phẩm</th>
                 <th style="text-align:center; width: 200px; background:#059669; color:#FFFFFF;">SL TỐI ĐA CHẠY ĐƯỢC</th>
                 <th style="text-align:center; width: 170px;">Trạng Thái</th>
@@ -1380,6 +1523,7 @@ with tabs[1]:
             <tr class="row-ok">
                 <td style="text-align:center;"><b>#{idx_row}</b></td>
                 <td style="text-align:center;"><span class="badge-order">{r_item['order_no']}</span></td>
+                <td style="text-align:center;"><span class="badge-wh">🏬 Kho {r_item.get('wh', tab2_wh_code)}</span></td>
                 <td><b>{r_item['description']}</b></td>
                 <td style="text-align:center; font-size:16px; font-weight:900; color:#059669; background:#ECFDF5;" title="{hover_info}">
                     {r_item['max_runnable_qty']:,} pcs
